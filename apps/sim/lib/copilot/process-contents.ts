@@ -1,9 +1,10 @@
+import { db } from '@sim/db'
+import { copilotChats, document, knowledgeBase, templates } from '@sim/db/schema'
 import { and, eq, isNull } from 'drizzle-orm'
 import { createLogger } from '@/lib/logs/console/logger'
 import { loadWorkflowFromNormalizedTables } from '@/lib/workflows/db-helpers'
-import { db } from '@/db'
-import { copilotChats, document, knowledgeBase, templates } from '@/db/schema'
-import type { ChatContext } from '@/stores/copilot/types'
+import { sanitizeForCopilot } from '@/lib/workflows/json-sanitizer'
+import type { ChatContext } from '@/stores/panel-new/copilot/types'
 
 export type AgentContextType =
   | 'past_chat'
@@ -260,12 +261,13 @@ async function processWorkflowFromDb(
       loops: normalized.loops || {},
       parallels: normalized.parallels || {},
     }
+    // Sanitize workflow state for copilot (remove UI-specific data like positions)
+    const sanitizedState = sanitizeForCopilot(workflowState)
     // Match get-user-workflow format: just the workflow state JSON
-    const content = JSON.stringify(workflowState, null, 2)
-    logger.info('Processed workflow context', {
+    const content = JSON.stringify(sanitizedState, null, 2)
+    logger.info('Processed sanitized workflow context', {
       workflowId,
-      blocks: Object.keys(workflowState.blocks || {}).length,
-      edges: workflowState.edges.length,
+      blocks: Object.keys(sanitizedState.blocks || {}).length,
     })
     // Use the provided kind for the type
     return { type: kind, tag, content }
@@ -425,9 +427,7 @@ async function processTemplateFromDb(
       .select({
         id: templates.id,
         name: templates.name,
-        description: templates.description,
-        category: templates.category,
-        author: templates.author,
+        details: templates.details,
         stars: templates.stars,
         state: templates.state,
       })
@@ -436,14 +436,11 @@ async function processTemplateFromDb(
       .limit(1)
     const t = rows?.[0]
     if (!t) return null
-    const workflowState = (t as any).state || {}
-    // Match get-user-workflow format: just the workflow state JSON
+    const workflowState = t.state || {}
     const summary = {
       id: t.id,
       name: t.name,
-      description: t.description || '',
-      category: t.category,
-      author: t.author,
+      description: (t.details as any)?.tagline || '',
       stars: t.stars || 0,
       workflow: workflowState,
     }
@@ -485,8 +482,8 @@ async function processExecutionLogFromDb(
   tag: string
 ): Promise<AgentContext | null> {
   try {
-    const { workflowExecutionLogs, workflow } = await import('@/db/schema')
-    const { db } = await import('@/db')
+    const { workflowExecutionLogs, workflow } = await import('@sim/db/schema')
+    const { db } = await import('@sim/db')
     const rows = await db
       .select({
         id: workflowExecutionLogs.id,

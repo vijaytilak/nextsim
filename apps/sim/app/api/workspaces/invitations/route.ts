@@ -1,14 +1,6 @@
 import { randomUUID } from 'crypto'
 import { render } from '@react-email/render'
-import { and, eq, inArray } from 'drizzle-orm'
-import { type NextRequest, NextResponse } from 'next/server'
-import { WorkspaceInvitationEmail } from '@/components/emails/workspace-invitation'
-import { getSession } from '@/lib/auth'
-import { sendEmail } from '@/lib/email/mailer'
-import { getFromEmailAddress } from '@/lib/email/utils'
-import { env } from '@/lib/env'
-import { createLogger } from '@/lib/logs/console/logger'
-import { db } from '@/db'
+import { db } from '@sim/db'
 import {
   permissions,
   type permissionTypeEnum,
@@ -16,7 +8,15 @@ import {
   type WorkspaceInvitationStatus,
   workspace,
   workspaceInvitation,
-} from '@/db/schema'
+} from '@sim/db/schema'
+import { and, eq, inArray } from 'drizzle-orm'
+import { type NextRequest, NextResponse } from 'next/server'
+import { WorkspaceInvitationEmail } from '@/components/emails/workspace-invitation'
+import { getSession } from '@/lib/auth'
+import { sendEmail } from '@/lib/email/mailer'
+import { getFromEmailAddress } from '@/lib/email/utils'
+import { createLogger } from '@/lib/logs/console/logger'
+import { getBaseUrl } from '@/lib/urls/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -232,7 +232,7 @@ async function sendInvitationEmail({
   token: string
 }) {
   try {
-    const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://sim.ai'
+    const baseUrl = getBaseUrl()
     // Use invitation ID in path, token in query parameter for security
     const invitationLink = `${baseUrl}/invite/${invitationId}?token=${token}`
 

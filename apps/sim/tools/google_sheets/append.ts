@@ -13,7 +13,6 @@ export const appendTool: ToolConfig<GoogleSheetsToolParams, GoogleSheetsAppendRe
   oauth: {
     required: true,
     provider: 'google-sheets',
-    additionalScopes: [],
   },
 
   params: {
@@ -107,8 +106,6 @@ export const appendTool: ToolConfig<GoogleSheetsToolParams, GoogleSheetsAppendRe
               .replace(/\n/g, '\\n')
               .replace(/\r/g, '\\r')
               .replace(/\t/g, '\\t')
-              // Fix any double backslashes that might occur
-              .replace(/\\\\/g, '\\')
 
             // Try to parse again with sanitized input
             processedValues = JSON.parse(sanitizedInput)

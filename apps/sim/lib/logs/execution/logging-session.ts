@@ -21,6 +21,7 @@ export interface SessionStartParams {
   workspaceId?: string
   variables?: Record<string, string>
   triggerData?: Record<string, unknown>
+  skipLogCreation?: boolean // For resume executions - reuse existing log entry
 }
 
 export interface SessionCompleteParams {
@@ -28,6 +29,7 @@ export interface SessionCompleteParams {
   totalDurationMs?: number
   finalOutput?: any
   traceSpans?: any[]
+  workflowInput?: any
 }
 
 export interface SessionErrorCompleteParams {
@@ -37,6 +39,7 @@ export interface SessionErrorCompleteParams {
     message?: string
     stackTrace?: string
   }
+  traceSpans?: TraceSpan[]
 }
 
 export class LoggingSession {
@@ -47,6 +50,7 @@ export class LoggingSession {
   private trigger?: ExecutionTrigger
   private environment?: ExecutionEnvironment
   private workflowState?: WorkflowState
+  private isResume = false // Track if this is a resume execution
 
   constructor(
     workflowId: string,
@@ -61,7 +65,7 @@ export class LoggingSession {
   }
 
   async start(params: SessionStartParams = {}): Promise<void> {
-    const { userId, workspaceId, variables, triggerData } = params
+    const { userId, workspaceId, variables, triggerData, skipLogCreation } = params
 
     try {
       this.trigger = createTriggerObject(this.triggerType, triggerData)
@@ -74,16 +78,26 @@ export class LoggingSession {
       )
       this.workflowState = await loadWorkflowStateForExecution(this.workflowId)
 
-      await executionLogger.startWorkflowExecution({
-        workflowId: this.workflowId,
-        executionId: this.executionId,
-        trigger: this.trigger,
-        environment: this.environment,
-        workflowState: this.workflowState,
-      })
+      // Only create a new log entry if not resuming
+      if (!skipLogCreation) {
+        await executionLogger.startWorkflowExecution({
+          workflowId: this.workflowId,
+          executionId: this.executionId,
+          trigger: this.trigger,
+          environment: this.environment,
+          workflowState: this.workflowState,
+        })
 
-      if (this.requestId) {
-        logger.debug(`[${this.requestId}] Started logging for execution ${this.executionId}`)
+        if (this.requestId) {
+          logger.debug(`[${this.requestId}] Started logging for execution ${this.executionId}`)
+        }
+      } else {
+        this.isResume = true // Mark as resume
+        if (this.requestId) {
+          logger.debug(
+            `[${this.requestId}] Resuming logging for existing execution ${this.executionId}`
+          )
+        }
       }
     } catch (error) {
       if (this.requestId) {
@@ -105,19 +119,54 @@ export class LoggingSession {
   }
 
   async complete(params: SessionCompleteParams = {}): Promise<void> {
-    const { endedAt, totalDurationMs, finalOutput, traceSpans } = params
+    const { endedAt, totalDurationMs, finalOutput, traceSpans, workflowInput } = params
 
     try {
       const costSummary = calculateCostSummary(traceSpans || [])
+      const endTime = endedAt || new Date().toISOString()
+      const duration = totalDurationMs || 0
 
       await executionLogger.completeWorkflowExecution({
         executionId: this.executionId,
-        endedAt: endedAt || new Date().toISOString(),
-        totalDurationMs: totalDurationMs || 0,
+        endedAt: endTime,
+        totalDurationMs: duration,
         costSummary,
         finalOutput: finalOutput || {},
         traceSpans: traceSpans || [],
+        workflowInput,
+        isResume: this.isResume,
       })
+
+      // Track workflow execution outcome
+      if (traceSpans && traceSpans.length > 0) {
+        try {
+          const { trackPlatformEvent } = await import('@/lib/telemetry/tracer')
+
+          // Determine status from trace spans
+          const hasErrors = traceSpans.some((span: any) => {
+            const checkForErrors = (s: any): boolean => {
+              if (s.status === 'error') return true
+              if (s.children && Array.isArray(s.children)) {
+                return s.children.some(checkForErrors)
+              }
+              return false
+            }
+            return checkForErrors(span)
+          })
+
+          trackPlatformEvent('platform.workflow.executed', {
+            'workflow.id': this.workflowId,
+            'execution.duration_ms': duration,
+            'execution.status': hasErrors ? 'error' : 'success',
+            'execution.trigger': this.triggerType,
+            'execution.blocks_executed': traceSpans.length,
+            'execution.has_errors': hasErrors,
+            'execution.total_cost': costSummary.totalCost || 0,
+          })
+        } catch (_e) {
+          // Silently fail
+        }
+      }
 
       if (this.requestId) {
         logger.debug(`[${this.requestId}] Completed logging for execution ${this.executionId}`)
@@ -131,7 +180,7 @@ export class LoggingSession {
 
   async completeWithError(params: SessionErrorCompleteParams = {}): Promise<void> {
     try {
-      const { endedAt, totalDurationMs, error } = params
+      const { endedAt, totalDurationMs, error, traceSpans } = params
 
       const endTime = endedAt ? new Date(endedAt) : new Date()
       const durationMs = typeof totalDurationMs === 'number' ? totalDurationMs : 0
@@ -151,19 +200,21 @@ export class LoggingSession {
 
       const message = error?.message || 'Execution failed before starting blocks'
 
-      const syntheticErrorSpan: TraceSpan[] = [
-        {
-          id: 'pre-execution-validation',
-          name: 'Workflow Error',
-          type: 'validation',
-          duration: Math.max(1, durationMs),
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          status: 'error',
-          children: [],
-          output: { error: message },
-        },
-      ]
+      const hasProvidedSpans = Array.isArray(traceSpans) && traceSpans.length > 0
+
+      const errorSpan: TraceSpan = {
+        id: 'workflow-error-root',
+        name: 'Workflow Error',
+        type: 'workflow',
+        duration: Math.max(1, durationMs),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        status: 'error',
+        ...(hasProvidedSpans ? {} : { children: [] }),
+        output: { error: message },
+      }
+
+      const spans = hasProvidedSpans ? traceSpans : [errorSpan]
 
       await executionLogger.completeWorkflowExecution({
         executionId: this.executionId,
@@ -171,8 +222,24 @@ export class LoggingSession {
         totalDurationMs: Math.max(1, durationMs),
         costSummary,
         finalOutput: { error: message },
-        traceSpans: syntheticErrorSpan,
+        traceSpans: spans,
       })
+
+      // Track workflow execution error outcome
+      try {
+        const { trackPlatformEvent } = await import('@/lib/telemetry/tracer')
+        trackPlatformEvent('platform.workflow.executed', {
+          'workflow.id': this.workflowId,
+          'execution.duration_ms': Math.max(1, durationMs),
+          'execution.status': 'error',
+          'execution.trigger': this.triggerType,
+          'execution.blocks_executed': spans.length,
+          'execution.has_errors': true,
+          'execution.error_message': message,
+        })
+      } catch (_e) {
+        // Silently fail
+      }
 
       if (this.requestId) {
         logger.debug(`[${this.requestId}] Completed logging for execution ${this.executionId}`)
@@ -190,9 +257,51 @@ export class LoggingSession {
       return true
     } catch (error) {
       if (this.requestId) {
-        logger.error(`[${this.requestId}] Logging start failed:`, error)
+        logger.warn(
+          `[${this.requestId}] Logging start failed - falling back to minimal session:`,
+          error
+        )
       }
-      return false
+
+      // Fallback: create a minimal logging session without full workflow state
+      try {
+        const { userId, workspaceId, variables, triggerData } = params
+        this.trigger = createTriggerObject(this.triggerType, triggerData)
+        this.environment = createEnvironmentObject(
+          this.workflowId,
+          this.executionId,
+          userId,
+          workspaceId,
+          variables
+        )
+        // Minimal workflow state when normalized data is unavailable
+        this.workflowState = {
+          blocks: {},
+          edges: [],
+          loops: {},
+          parallels: {},
+        } as unknown as WorkflowState
+
+        await executionLogger.startWorkflowExecution({
+          workflowId: this.workflowId,
+          executionId: this.executionId,
+          trigger: this.trigger,
+          environment: this.environment,
+          workflowState: this.workflowState,
+        })
+
+        if (this.requestId) {
+          logger.debug(
+            `[${this.requestId}] Started minimal logging for execution ${this.executionId}`
+          )
+        }
+        return true
+      } catch (fallbackError) {
+        if (this.requestId) {
+          logger.error(`[${this.requestId}] Minimal logging start also failed:`, fallbackError)
+        }
+        return false
+      }
     }
   }
 

@@ -1,0 +1,87 @@
+---
+title: Introduction
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Image } from '@/components/ui/image'
+
+Sim is an open-source visual workflow builder for building and deploying AI agent workflows. Design intelligent automation systems using a no-code interface—connect AI models, databases, APIs, and business tools through an intuitive drag-and-drop canvas. Whether you're building chatbots, automating business processes, or orchestrating complex data pipelines, Sim provides the tools to bring your AI workflows to life.
+
+<div className="flex justify-center">
+  <Image
+    src="/static/introduction.png"
+    alt="Sim visual workflow canvas"
+    width={700}
+    height={450}
+    className="my-6"
+  />
+</div>
+
+## What You Can Build
+
+**AI Assistants & Chatbots**  
+Build intelligent conversational agents that integrate with your tools and data. Enable capabilities like web search, calendar management, email automation, and seamless interaction with business systems.
+
+**Business Process Automation**  
+Eliminate manual tasks across your organization. Automate data entry, generate reports, respond to customer inquiries, and streamline content creation workflows.
+
+**Data Processing & Analysis**  
+Transform raw data into actionable insights. Extract information from documents, perform dataset analysis, generate automated reports, and synchronize data across platforms.
+
+**API Integration Workflows**  
+Orchestrate complex multi-service interactions. Create unified API endpoints, implement sophisticated business logic, and build event-driven automation systems.
+
+## How It Works
+
+**Visual Workflow Editor**  
+Design workflows using an intuitive drag-and-drop canvas. Connect AI models, databases, APIs, and third-party services through a visual, no-code interface that makes complex automation logic easy to understand and maintain.
+
+**Modular Block System**  
+Build with specialized components: processing blocks (AI agents, API calls, custom functions), logic blocks (conditional branching, loops, routers), and output blocks (responses, evaluators). Each block handles a specific task in your workflow.
+
+**Flexible Execution Triggers**  
+Launch workflows through multiple channels including chat interfaces, REST APIs, webhooks, scheduled cron jobs, or external events from platforms like Slack and GitHub.
+
+**Real-time Collaboration**  
+Enable your team to build together. Multiple users can edit workflows simultaneously with live updates and granular permission controls.
+
+## Integrations
+
+Sim provides native integrations with 80+ services across multiple categories:
+
+- **AI Models**: OpenAI, Anthropic, Google Gemini, Groq, Cerebras, local models via Ollama
+- **Communication**: Gmail, Slack, Microsoft Teams, Telegram, WhatsApp  
+- **Productivity**: Notion, Google Workspace, Airtable, Monday.com
+- **Development**: GitHub, Jira, Linear, automated browser testing
+- **Search & Data**: Google Search, Perplexity, Firecrawl, Exa AI
+- **Databases**: PostgreSQL, MySQL, Supabase, Pinecone, Qdrant
+
+For custom integrations, leverage our [MCP (Model Context Protocol) support](/mcp) to connect any external service or tool.
+
+## Deployment Options
+
+**Cloud-Hosted**  
+Launch immediately at [sim.ai](https://sim.ai) with fully managed infrastructure, automatic scaling, and built-in observability. Focus on building workflows while we handle the operations.
+
+**Self-Hosted**  
+Deploy on your own infrastructure using Docker Compose or Kubernetes. Maintain complete control over your data with support for local AI models through Ollama integration.
+
+## Next Steps
+
+Ready to build your first AI workflow?
+
+<Cards>
+  <Card title="Getting Started" href="/getting-started">
+    Create your first workflow in 10 minutes
+  </Card>
+  <Card title="Workflow Blocks" href="/blocks">
+    Learn about the building blocks
+  </Card>
+  <Card title="Tools & Integrations" href="/tools">
+    Explore 80+ built-in integrations
+  </Card>
+  <Card title="Team Permissions" href="/permissions/roles-and-permissions">
+    Set up workspace roles and permissions
+  </Card>
+</Cards>

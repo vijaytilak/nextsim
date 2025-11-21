@@ -1,6 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 import { type ClassValue, clsx } from 'clsx'
-import { nanoid } from 'nanoid'
 import { twMerge } from 'tailwind-merge'
 import { env } from '@/lib/env'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -266,11 +265,19 @@ export function formatDuration(durationMs: number): string {
 }
 
 /**
- * Generates a standardized API key with the 'sim_' prefix
- * @returns A new API key string
+ * Generates a secure random password
+ * @param length - The length of the password (default: 24)
+ * @returns A new secure password string
  */
-export function generateApiKey(): string {
-  return `sim_${nanoid(32)}`
+export function generatePassword(length = 24): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_-+='
+  let result = ''
+
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+
+  return result
 }
 
 /**
@@ -346,6 +353,92 @@ export const redactApiKeys = (obj: any): any => {
 }
 
 /**
+ * Type guard to check if an object is a UserFile
+ */
+export function isUserFile(candidate: unknown): candidate is {
+  id: string
+  name: string
+  url: string
+  key: string
+  size: number
+  type: string
+  context?: string
+} {
+  if (!candidate || typeof candidate !== 'object') {
+    return false
+  }
+
+  const value = candidate as Record<string, unknown>
+  return (
+    typeof value.id === 'string' &&
+    typeof value.key === 'string' &&
+    typeof value.url === 'string' &&
+    typeof value.name === 'string'
+  )
+}
+
+/**
+ * Filter function that transforms UserFile objects for display
+ * Removes internal fields: key, context
+ * Keeps user-friendly fields: id, name, url, size, type
+ */
+function filterUserFile(data: any): any {
+  if (isUserFile(data)) {
+    const { id, name, url, size, type } = data
+    return { id, name, url, size, type }
+  }
+  return data
+}
+
+/**
+ * Registry of filter functions to apply to data for cleaner display in logs/console.
+ * Add new filter functions here to handle additional data types.
+ */
+const DISPLAY_FILTERS = [
+  filterUserFile,
+  // Add more filters here as needed
+]
+
+/**
+ * Generic helper to filter internal/technical fields from data for cleaner display in logs and console.
+ * Applies all registered filters recursively to the data structure.
+ *
+ * To add a new filter:
+ * 1. Create a filter function that checks and transforms a specific data type
+ * 2. Add it to the DISPLAY_FILTERS array above
+ *
+ * @param data - Data to filter (objects, arrays, primitives)
+ * @returns Filtered data with internal fields removed
+ */
+export function filterForDisplay(data: any): any {
+  if (!data || typeof data !== 'object') {
+    return data
+  }
+
+  // Apply all registered filters
+  const filtered = data
+  for (const filterFn of DISPLAY_FILTERS) {
+    const result = filterFn(filtered)
+    if (result !== filtered) {
+      // Filter matched and transformed the data
+      return result
+    }
+  }
+
+  // No filters matched - recursively filter nested structures
+  if (Array.isArray(filtered)) {
+    return filtered.map(filterForDisplay)
+  }
+
+  // Recursively filter object properties
+  const result: any = {}
+  for (const [key, value] of Object.entries(filtered)) {
+    result[key] = filterForDisplay(value)
+  }
+  return result
+}
+
+/**
  * Validates a name by removing any characters that could cause issues
  * with variable references or node naming.
  *
@@ -368,6 +461,25 @@ export function isValidName(name: string): boolean {
   return /^[a-zA-Z0-9_\s]*$/.test(name)
 }
 
+export const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+  'X-Accel-Buffering': 'no',
+} as const
+
+/**
+ * Encodes data as a Server-Sent Events (SSE) message.
+ * Formats the data as a JSON string prefixed with "data:" and suffixed with two newlines,
+ * then encodes it as a Uint8Array for streaming.
+ *
+ * @param data - The data to encode and send via SSE
+ * @returns The encoded SSE message as a Uint8Array
+ */
+export function encodeSSE(data: any): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
+}
+
 /**
  * Gets a list of invalid characters in a name
  *
@@ -380,19 +492,113 @@ export function getInvalidCharacters(name: string): string[] {
 }
 
 /**
- * Get the full URL for an asset stored in Vercel Blob or local fallback
- * - If CDN is configured (NEXT_PUBLIC_BLOB_BASE_URL), uses CDN URL
- * - Otherwise falls back to local static assets served from root path
+ * Generate a short request ID for correlation
  */
-export function getAssetUrl(filename: string) {
-  const cdnBaseUrl = env.NEXT_PUBLIC_BLOB_BASE_URL
-  if (cdnBaseUrl) {
-    return `${cdnBaseUrl}/${filename}`
-  }
-  return `/${filename}`
+export function generateRequestId(): string {
+  return crypto.randomUUID().slice(0, 8)
 }
 
 /**
  * No-operation function for use as default callback
  */
 export const noop = () => {}
+
+/**
+ * Options for performing an optimistic update with automatic rollback on error
+ */
+export interface OptimisticUpdateOptions<T> {
+  /**
+   * Function that returns the current state value (for rollback purposes)
+   */
+  getCurrentState: () => T
+  /**
+   * Function that performs the optimistic update to the UI state
+   */
+  optimisticUpdate: () => void
+  /**
+   * Async function that performs the actual API call
+   */
+  apiCall: () => Promise<void>
+  /**
+   * Function that rolls back the state to the original value
+   * @param originalValue - The value returned by getCurrentState before the update
+   */
+  rollback: (originalValue: T) => void
+  /**
+   * Optional error message to log if the operation fails
+   */
+  errorMessage?: string
+  /**
+   * Optional callback to execute on error (e.g., show toast notification)
+   */
+  onError?: (error: Error, originalValue: T) => void
+  /**
+   * Optional callback that always runs regardless of success or error (e.g., to clear loading states)
+   */
+  onComplete?: () => void
+}
+
+/**
+ * Performs an optimistic update with automatic rollback on error.
+ * This utility standardizes the pattern of:
+ * 1. Save current state
+ * 2. Update UI optimistically
+ * 3. Make API call
+ * 4. Rollback on error
+ *
+ * @example
+ * ```typescript
+ * await withOptimisticUpdate({
+ *   getCurrentState: () => get().folders[id],
+ *   optimisticUpdate: () => set(state => ({
+ *     folders: { ...state.folders, [id]: { ...folder, name: newName } }
+ *   })),
+ *   apiCall: async () => {
+ *     await fetch(`/api/folders/${id}`, {
+ *       method: 'PUT',
+ *       body: JSON.stringify({ name: newName })
+ *     })
+ *   },
+ *   rollback: (originalFolder) => set(state => ({
+ *     folders: { ...state.folders, [id]: originalFolder }
+ *   })),
+ *   errorMessage: 'Failed to rename folder',
+ *   onError: (error) => toast.error('Could not rename folder')
+ * })
+ * ```
+ */
+export async function withOptimisticUpdate<T>(options: OptimisticUpdateOptions<T>): Promise<void> {
+  const {
+    getCurrentState,
+    optimisticUpdate,
+    apiCall,
+    rollback,
+    errorMessage,
+    onError,
+    onComplete,
+  } = options
+
+  const originalValue = getCurrentState()
+
+  optimisticUpdate()
+
+  try {
+    await apiCall()
+  } catch (error) {
+    rollback(originalValue)
+
+    if (errorMessage) {
+      logger.error(errorMessage, { error })
+    }
+
+    if (onError && error instanceof Error) {
+      onError(error, originalValue)
+    }
+
+    throw error
+  } finally {
+    if (onComplete) {
+      onComplete()
+    }
+  }
+}

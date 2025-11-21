@@ -1,11 +1,13 @@
+import { db } from '@sim/db'
+import { userStats, workflow } from '@sim/db/schema'
 import { eq, sql } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
 import OpenAI, { AzureOpenAI } from 'openai'
+import { checkAndBillOverageThreshold } from '@/lib/billing/threshold-billing'
 import { env } from '@/lib/env'
 import { getCostMultiplier, isBillingEnabled } from '@/lib/environment'
 import { createLogger } from '@/lib/logs/console/logger'
-import { db } from '@/db'
-import { userStats, workflow } from '@/db/schema'
+import { generateRequestId } from '@/lib/utils'
 import { getModelPricing } from '@/providers/utils'
 
 export const dynamic = 'force-dynamic'
@@ -132,13 +134,16 @@ async function updateUserStatsForWand(
       tokensUsed: totalTokens,
       costAdded: costToStore,
     })
+
+    // Check if user has hit overage threshold and bill incrementally
+    await checkAndBillOverageThreshold(userId)
   } catch (error) {
     logger.error(`[${requestId}] Failed to update user stats for wand usage`, error)
   }
 }
 
 export async function POST(req: NextRequest) {
-  const requestId = crypto.randomUUID().slice(0, 8)
+  const requestId = generateRequestId()
   logger.info(`[${requestId}] Received wand generation request`)
 
   if (!client) {

@@ -13,8 +13,7 @@ import {
 } from '@react-email/components'
 import { format } from 'date-fns'
 import { getBrandConfig } from '@/lib/branding/branding'
-import { env } from '@/lib/env'
-import { getAssetUrl } from '@/lib/utils'
+import { getBaseUrl } from '@/lib/urls/utils'
 import { baseStyles } from './base-styles'
 import EmailFooter from './footer'
 
@@ -24,14 +23,13 @@ interface ResetPasswordEmailProps {
   updatedDate?: Date
 }
 
-const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://sim.ai'
-
 export const ResetPasswordEmail = ({
   username = '',
   resetLink = '',
   updatedDate = new Date(),
 }: ResetPasswordEmailProps) => {
   const brand = getBrandConfig()
+  const baseUrl = getBaseUrl()
 
   return (
     <Html>
@@ -43,7 +41,7 @@ export const ResetPasswordEmail = ({
             <Row>
               <Column style={{ textAlign: 'center' }}>
                 <Img
-                  src={brand.logoUrl || getAssetUrl('static/sim.png')}
+                  src={brand.logoUrl || `${baseUrl}/logo/reverse/text/medium.png`}
                   width='114'
                   alt={brand.name}
                   style={{

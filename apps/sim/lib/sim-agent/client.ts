@@ -1,10 +1,9 @@
 import { env } from '@/lib/env'
 import { createLogger } from '@/lib/logs/console/logger'
-import { SIM_AGENT_API_URL_DEFAULT } from '@/lib/sim-agent'
+import { SIM_AGENT_API_URL_DEFAULT } from '@/lib/sim-agent/constants'
+import { generateRequestId } from '@/lib/utils'
 
 const logger = createLogger('SimAgentClient')
-
-const SIM_AGENT_BASE_URL = env.SIM_AGENT_API_URL || SIM_AGENT_API_URL_DEFAULT
 
 export interface SimAgentRequest {
   workflowId: string
@@ -23,7 +22,8 @@ class SimAgentClient {
   private baseUrl: string
 
   constructor() {
-    this.baseUrl = SIM_AGENT_BASE_URL
+    // Move environment variable access inside the constructor
+    this.baseUrl = env.SIM_AGENT_API_URL || SIM_AGENT_API_URL_DEFAULT
   }
 
   /**
@@ -38,7 +38,7 @@ class SimAgentClient {
       apiKey?: string // Allow passing API key directly
     } = {}
   ): Promise<SimAgentResponse<T>> {
-    const requestId = crypto.randomUUID().slice(0, 8)
+    const requestId = generateRequestId()
     const { method = 'POST', body, headers = {} } = options
 
     try {

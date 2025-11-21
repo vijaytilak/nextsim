@@ -11,8 +11,7 @@ import {
   Text,
 } from '@react-email/components'
 import { getBrandConfig } from '@/lib/branding/branding'
-import { env } from '@/lib/env'
-import { getAssetUrl } from '@/lib/utils'
+import { getBaseUrl } from '@/lib/urls/utils'
 import { baseStyles } from './base-styles'
 import EmailFooter from './footer'
 
@@ -22,8 +21,6 @@ interface OTPVerificationEmailProps {
   type?: 'sign-in' | 'email-verification' | 'forget-password' | 'chat-access'
   chatTitle?: string
 }
-
-const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://sim.ai'
 
 const getSubjectByType = (type: string, brandName: string, chatTitle?: string) => {
   switch (type) {
@@ -47,6 +44,7 @@ export const OTPVerificationEmail = ({
   chatTitle,
 }: OTPVerificationEmailProps) => {
   const brand = getBrandConfig()
+  const baseUrl = getBaseUrl()
 
   // Get a message based on the type
   const getMessage = () => {
@@ -72,7 +70,7 @@ export const OTPVerificationEmail = ({
             <Row>
               <Column style={{ textAlign: 'center' }}>
                 <Img
-                  src={brand.logoUrl || getAssetUrl('static/sim.png')}
+                  src={brand.logoUrl || `${baseUrl}/logo/reverse/text/medium.png`}
                   width='114'
                   alt={brand.name}
                   style={{

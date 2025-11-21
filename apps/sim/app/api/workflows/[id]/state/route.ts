@@ -1,12 +1,17 @@
+import { db } from '@sim/db'
+import { workflow } from '@sim/db/schema'
 import { eq } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getUserEntityPermissions } from '@/lib/permissions/utils'
+import { generateRequestId } from '@/lib/utils'
+import { extractAndPersistCustomTools } from '@/lib/workflows/custom-tools-persistence'
 import { saveWorkflowToNormalizedTables } from '@/lib/workflows/db-helpers'
-import { db } from '@/db'
-import { workflow } from '@/db/schema'
+import { getWorkflowAccessContext } from '@/lib/workflows/utils'
+import { sanitizeAgentToolsInBlocks } from '@/lib/workflows/validation'
+import type { BlockState } from '@/stores/workflows/workflow/types'
+import { generateLoopBlocks, generateParallelBlocks } from '@/stores/workflows/workflow/utils'
 
 const logger = createLogger('WorkflowStateAPI')
 
@@ -22,7 +27,9 @@ const BlockDataSchema = z.object({
   height: z.number().optional(),
   collection: z.unknown().optional(),
   count: z.number().optional(),
-  loopType: z.enum(['for', 'forEach']).optional(),
+  loopType: z.enum(['for', 'forEach', 'while', 'doWhile']).optional(),
+  whileCondition: z.string().optional(),
+  doWhileCondition: z.string().optional(),
   parallelType: z.enum(['collection', 'count']).optional(),
   type: z.string().optional(),
 })
@@ -44,7 +51,6 @@ const BlockStateSchema = z.object({
   outputs: z.record(BlockOutputSchema),
   enabled: z.boolean(),
   horizontalHandles: z.boolean().optional(),
-  isWide: z.boolean().optional(),
   height: z.number().optional(),
   advancedMode: z.boolean().optional(),
   triggerMode: z.boolean().optional(),
@@ -75,8 +81,10 @@ const LoopSchema = z.object({
   id: z.string(),
   nodes: z.array(z.string()),
   iterations: z.number(),
-  loopType: z.enum(['for', 'forEach']),
+  loopType: z.enum(['for', 'forEach', 'while', 'doWhile']),
   forEachItems: z.union([z.array(z.any()), z.record(z.any()), z.string()]).optional(),
+  whileCondition: z.string().optional(),
+  doWhileCondition: z.string().optional(),
 })
 
 const ParallelSchema = z.object({
@@ -87,13 +95,6 @@ const ParallelSchema = z.object({
   parallelType: z.enum(['count', 'collection']).optional(),
 })
 
-const DeploymentStatusSchema = z.object({
-  id: z.string(),
-  status: z.enum(['deploying', 'deployed', 'failed', 'stopping', 'stopped']),
-  deployedAt: z.date().optional(),
-  error: z.string().optional(),
-})
-
 const WorkflowStateSchema = z.object({
   blocks: z.record(BlockStateSchema),
   edges: z.array(EdgeSchema),
@@ -101,9 +102,8 @@ const WorkflowStateSchema = z.object({
   parallels: z.record(ParallelSchema).optional(),
   lastSaved: z.number().optional(),
   isDeployed: z.boolean().optional(),
-  deployedAt: z.date().optional(),
-  deploymentStatuses: z.record(DeploymentStatusSchema).optional(),
-  hasActiveWebhook: z.boolean().optional(),
+  deployedAt: z.coerce.date().optional(),
+  variables: z.any().optional(), // Workflow variables
 })
 
 /**
@@ -111,7 +111,7 @@ const WorkflowStateSchema = z.object({
  * Save complete workflow state to normalized database tables
  */
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const requestId = crypto.randomUUID().slice(0, 8)
+  const requestId = generateRequestId()
   const startTime = Date.now()
   const { id: workflowId } = await params
 
@@ -125,16 +125,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const userId = session.user.id
 
-    // Parse and validate request body
     const body = await request.json()
     const state = WorkflowStateSchema.parse(body)
 
     // Fetch the workflow to check ownership/access
-    const workflowData = await db
-      .select()
-      .from(workflow)
-      .where(eq(workflow.id, workflowId))
-      .then((rows) => rows[0])
+    const accessContext = await getWorkflowAccessContext(workflowId, userId)
+    const workflowData = accessContext?.workflow
 
     if (!workflowData) {
       logger.warn(`[${requestId}] Workflow ${workflowId} not found for state update`)
@@ -142,24 +138,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     // Check if user has permission to update this workflow
-    let canUpdate = false
-
-    // Case 1: User owns the workflow
-    if (workflowData.userId === userId) {
-      canUpdate = true
-    }
-
-    // Case 2: Workflow belongs to a workspace and user has write or admin permission
-    if (!canUpdate && workflowData.workspaceId) {
-      const userPermission = await getUserEntityPermissions(
-        userId,
-        'workspace',
-        workflowData.workspaceId
-      )
-      if (userPermission === 'write' || userPermission === 'admin') {
-        canUpdate = true
-      }
-    }
+    const canUpdate =
+      accessContext?.isOwner ||
+      (workflowData.workspaceId
+        ? accessContext?.workspacePermission === 'write' ||
+          accessContext?.workspacePermission === 'admin'
+        : false)
 
     if (!canUpdate) {
       logger.warn(
@@ -168,11 +152,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
+    // Sanitize custom tools in agent blocks before saving
+    const { blocks: sanitizedBlocks, warnings } = sanitizeAgentToolsInBlocks(state.blocks as any)
+
     // Save to normalized tables
     // Ensure all required fields are present for WorkflowState type
     // Filter out blocks without type or name before saving
-    const filteredBlocks = Object.entries(state.blocks).reduce(
-      (acc, [blockId, block]) => {
+    const filteredBlocks = Object.entries(sanitizedBlocks).reduce(
+      (acc, [blockId, block]: [string, any]) => {
         if (block.type && block.name) {
           // Ensure all required fields are present
           acc[blockId] = {
@@ -180,11 +167,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             enabled: block.enabled !== undefined ? block.enabled : true,
             horizontalHandles:
               block.horizontalHandles !== undefined ? block.horizontalHandles : true,
-            isWide: block.isWide !== undefined ? block.isWide : false,
             height: block.height !== undefined ? block.height : 0,
             subBlocks: block.subBlocks || {},
             outputs: block.outputs || {},
-            data: block.data || {},
           }
         }
         return acc
@@ -192,16 +177,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       {} as typeof state.blocks
     )
 
+    const typedBlocks = filteredBlocks as Record<string, BlockState>
+    const canonicalLoops = generateLoopBlocks(typedBlocks)
+    const canonicalParallels = generateParallelBlocks(typedBlocks)
+
     const workflowState = {
       blocks: filteredBlocks,
       edges: state.edges,
-      loops: state.loops || {},
-      parallels: state.parallels || {},
+      loops: canonicalLoops,
+      parallels: canonicalParallels,
       lastSaved: state.lastSaved || Date.now(),
       isDeployed: state.isDeployed || false,
       deployedAt: state.deployedAt,
-      deploymentStatuses: state.deploymentStatuses || {},
-      hasActiveWebhook: state.hasActiveWebhook || false,
     }
 
     const saveResult = await saveWorkflowToNormalizedTables(workflowId, workflowState as any)
@@ -214,42 +201,68 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
-    // Update workflow's lastSynced timestamp
-    await db
-      .update(workflow)
-      .set({
-        lastSynced: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(workflow.id, workflowId))
+    // Extract and persist custom tools to database
+    try {
+      const workspaceId = workflowData.workspaceId
+      if (workspaceId) {
+        const { saved, errors } = await extractAndPersistCustomTools(
+          workflowState,
+          workspaceId,
+          userId
+        )
+
+        if (saved > 0) {
+          logger.info(`[${requestId}] Persisted ${saved} custom tool(s) to database`, {
+            workflowId,
+          })
+        }
+
+        if (errors.length > 0) {
+          logger.warn(`[${requestId}] Some custom tools failed to persist`, { errors, workflowId })
+        }
+      } else {
+        logger.warn(
+          `[${requestId}] Workflow has no workspaceId, skipping custom tools persistence`,
+          {
+            workflowId,
+          }
+        )
+      }
+    } catch (error) {
+      logger.error(`[${requestId}] Failed to persist custom tools`, { error, workflowId })
+    }
+
+    // Update workflow's lastSynced timestamp and variables if provided
+    const updateData: any = {
+      lastSynced: new Date(),
+      updatedAt: new Date(),
+    }
+
+    // If variables are provided in the state, update them in the workflow record
+    if (state.variables !== undefined) {
+      updateData.variables = state.variables
+    }
+
+    await db.update(workflow).set(updateData).where(eq(workflow.id, workflowId))
 
     const elapsed = Date.now() - startTime
     logger.info(`[${requestId}] Successfully saved workflow ${workflowId} state in ${elapsed}ms`)
 
-    return NextResponse.json(
-      {
-        success: true,
-        blocksCount: Object.keys(filteredBlocks).length,
-        edgesCount: state.edges.length,
-      },
-      { status: 200 }
-    )
-  } catch (error: unknown) {
+    return NextResponse.json({ success: true, warnings }, { status: 200 })
+  } catch (error: any) {
     const elapsed = Date.now() - startTime
-    if (error instanceof z.ZodError) {
-      logger.warn(`[${requestId}] Invalid workflow state data for ${workflowId}`, {
-        errors: error.errors,
-      })
-      return NextResponse.json(
-        { error: 'Invalid state data', details: error.errors },
-        { status: 400 }
-      )
-    }
-
     logger.error(
       `[${requestId}] Error saving workflow ${workflowId} state after ${elapsed}ms`,
       error
     )
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: error.errors },
+        { status: 400 }
+      )
+    }
+
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

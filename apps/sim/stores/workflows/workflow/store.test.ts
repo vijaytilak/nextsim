@@ -253,44 +253,6 @@ describe('workflow store', () => {
       expect(state.parallels.parallel1).toBeDefined()
       expect(state.parallels.parallel1.parallelType).toBe('count')
     })
-
-    it('should save to history when updating parallel properties', () => {
-      const { addBlock, updateParallelCollection, updateParallelCount, updateParallelType } =
-        useWorkflowStore.getState()
-
-      // Add a parallel block
-      addBlock(
-        'parallel1',
-        'parallel',
-        'Test Parallel',
-        { x: 0, y: 0 },
-        {
-          count: 3,
-          collection: '',
-        }
-      )
-
-      // Get initial history length
-      const initialHistoryLength = useWorkflowStore.getState().history.past.length
-
-      // Update collection
-      updateParallelCollection('parallel1', '["a", "b", "c"]')
-
-      let state = useWorkflowStore.getState()
-      expect(state.history.past.length).toBe(initialHistoryLength + 1)
-
-      // Update count
-      updateParallelCount('parallel1', 5)
-
-      state = useWorkflowStore.getState()
-      expect(state.history.past.length).toBe(initialHistoryLength + 2)
-
-      // Update parallel type
-      updateParallelType('parallel1', 'count')
-
-      state = useWorkflowStore.getState()
-      expect(state.history.past.length).toBe(initialHistoryLength + 3)
-    })
   })
 
   describe('mode switching', () => {
@@ -443,7 +405,6 @@ describe('workflow store', () => {
       expect(block.position).toEqual({ x: 100, y: 200 })
       expect(block.enabled).toBe(true)
       expect(block.horizontalHandles).toBe(true)
-      expect(block.isWide).toBe(false)
       expect(block.height).toBe(0)
     })
 
@@ -461,7 +422,6 @@ describe('workflow store', () => {
         {
           enabled: false,
           horizontalHandles: false,
-          isWide: true,
           advancedMode: true,
           height: 300,
         }
@@ -473,7 +433,6 @@ describe('workflow store', () => {
       expect(block).toBeDefined()
       expect(block.enabled).toBe(false)
       expect(block.horizontalHandles).toBe(false)
-      expect(block.isWide).toBe(true)
       expect(block.advancedMode).toBe(true)
       expect(block.height).toBe(300)
     })
@@ -492,7 +451,6 @@ describe('workflow store', () => {
         {
           enabled: false,
           horizontalHandles: false,
-          isWide: true,
           advancedMode: true,
           height: 250,
         }
@@ -504,7 +462,6 @@ describe('workflow store', () => {
       expect(block).toBeDefined()
       expect(block.enabled).toBe(false)
       expect(block.horizontalHandles).toBe(false)
-      expect(block.isWide).toBe(true)
       expect(block.advancedMode).toBe(true)
       expect(block.height).toBe(250)
     })
@@ -523,7 +480,6 @@ describe('workflow store', () => {
         {
           enabled: false,
           horizontalHandles: false,
-          isWide: true,
           advancedMode: true,
           height: 400,
         }
@@ -535,7 +491,6 @@ describe('workflow store', () => {
       expect(block).toBeDefined()
       expect(block.enabled).toBe(false)
       expect(block.horizontalHandles).toBe(false)
-      expect(block.isWide).toBe(true)
       expect(block.advancedMode).toBe(true)
       expect(block.height).toBe(400)
     })
@@ -552,8 +507,7 @@ describe('workflow store', () => {
         undefined,
         undefined,
         {
-          isWide: true,
-          // Only isWide provided, others should use defaults
+          // Empty blockProperties - all should use defaults
         }
       )
 
@@ -563,7 +517,6 @@ describe('workflow store', () => {
       expect(block).toBeDefined()
       expect(block.enabled).toBe(true) // default
       expect(block.horizontalHandles).toBe(true) // default
-      expect(block.isWide).toBe(true) // custom
       expect(block.advancedMode).toBe(false) // default
       expect(block.height).toBe(0) // default
     })
@@ -585,7 +538,6 @@ describe('workflow store', () => {
         'parent',
         {
           enabled: false,
-          isWide: true,
           advancedMode: true,
           height: 200,
         }
@@ -596,7 +548,6 @@ describe('workflow store', () => {
 
       expect(childBlock).toBeDefined()
       expect(childBlock.enabled).toBe(false)
-      expect(childBlock.isWide).toBe(true)
       expect(childBlock.advancedMode).toBe(true)
       expect(childBlock.height).toBe(200)
       expect(childBlock.data?.parentId).toBe('loop1')
@@ -636,7 +587,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('block1', 'Data Processor')
 
-      expect(result).toBe(true)
+      expect(result.success).toBe(true)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block1.name).toBe('Data Processor')
@@ -647,7 +598,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('block1', 'column ad')
 
-      expect(result).toBe(true)
+      expect(result.success).toBe(true)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block1.name).toBe('column ad')
@@ -658,7 +609,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('block2', 'Column AD')
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block2.name).toBe('Employee Length')
@@ -669,7 +620,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('block2', 'columnad')
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block2.name).toBe('Employee Length')
@@ -680,7 +631,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('block3', 'employee length')
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block3.name).toBe('Start')
@@ -690,10 +641,10 @@ describe('workflow store', () => {
       const { updateBlockName } = useWorkflowStore.getState()
 
       const result1 = updateBlockName('block1', '')
-      expect(result1).toBe(true)
+      expect(result1.success).toBe(true)
 
       const result2 = updateBlockName('block2', '   ')
-      expect(result2).toBe(true)
+      expect(result2.success).toBe(true)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block1.name).toBe('')
@@ -705,7 +656,7 @@ describe('workflow store', () => {
 
       const result = updateBlockName('nonexistent', 'New Name')
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
     })
 
     it('should handle complex normalization cases correctly', () => {
@@ -722,11 +673,11 @@ describe('workflow store', () => {
 
       for (const name of conflictingNames) {
         const result = updateBlockName('block2', name)
-        expect(result).toBe(false)
+        expect(result.success).toBe(false)
       }
 
       const result = updateBlockName('block2', 'Unique Name')
-      expect(result).toBe(true)
+      expect(result.success).toBe(true)
 
       const state = useWorkflowStore.getState()
       expect(state.blocks.block2.name).toBe('Unique Name')

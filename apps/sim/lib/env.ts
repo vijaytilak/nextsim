@@ -23,6 +23,7 @@ export const env = createEnv({
     ALLOWED_LOGIN_EMAILS:                  z.string().optional(),                  // Comma-separated list of allowed email addresses for login
     ALLOWED_LOGIN_DOMAINS:                 z.string().optional(),                  // Comma-separated list of allowed email domains for login
     ENCRYPTION_KEY:                        z.string().min(32),                     // Key for encrypting sensitive data
+    API_ENCRYPTION_KEY:                    z.string().min(32).optional(),          // Dedicated key for encrypting API keys (optional for OSS)
     INTERNAL_API_SECRET:                   z.string().min(32),                     // Secret for internal API authentication
 
     // Copilot
@@ -30,10 +31,10 @@ export const env = createEnv({
     COPILOT_MODEL:                         z.string().optional(),                  // Model for copilot API calls
     COPILOT_API_KEY:                       z.string().min(1).optional(),           // Secret for internal sim agent API authentication
     SIM_AGENT_API_URL:                     z.string().url().optional(),            // URL for internal sim agent API
-
+    AGENT_INDEXER_URL:                     z.string().url().optional(),            // URL for agent training data indexer
+    AGENT_INDEXER_API_KEY:                 z.string().min(1).optional(),           // API key for agent indexer authentication
 
     // Database & Storage
-    POSTGRES_URL:                          z.string().url().optional(),            // Alternative PostgreSQL connection string
     REDIS_URL:                             z.string().url().optional(),            // Redis connection string for caching/sessions
 
     // Payment & Billing
@@ -41,19 +42,30 @@ export const env = createEnv({
     STRIPE_WEBHOOK_SECRET:                 z.string().min(1).optional(),           // General Stripe webhook secret
     STRIPE_FREE_PRICE_ID:                  z.string().min(1).optional(),           // Stripe price ID for free tier
     FREE_TIER_COST_LIMIT:                  z.number().optional(),                  // Cost limit for free tier users
+    FREE_STORAGE_LIMIT_GB:                 z.number().optional().default(5),       // Storage limit in GB for free tier users
     STRIPE_PRO_PRICE_ID:                   z.string().min(1).optional(),           // Stripe price ID for pro tier
     PRO_TIER_COST_LIMIT:                   z.number().optional(),                  // Cost limit for pro tier users
+    PRO_STORAGE_LIMIT_GB:                  z.number().optional().default(50),      // Storage limit in GB for pro tier users
     STRIPE_TEAM_PRICE_ID:                  z.string().min(1).optional(),           // Stripe price ID for team tier
     TEAM_TIER_COST_LIMIT:                  z.number().optional(),                  // Cost limit for team tier users
+    TEAM_STORAGE_LIMIT_GB:                 z.number().optional().default(500),     // Storage limit in GB for team tier organizations (pooled)
     STRIPE_ENTERPRISE_PRICE_ID:            z.string().min(1).optional(),           // Stripe price ID for enterprise tier
     ENTERPRISE_TIER_COST_LIMIT:            z.number().optional(),                  // Cost limit for enterprise tier users
+    ENTERPRISE_STORAGE_LIMIT_GB:           z.number().optional().default(500),     // Default storage limit in GB for enterprise tier (can be overridden per org)
     BILLING_ENABLED:                       z.boolean().optional(),                 // Enable billing enforcement and usage tracking
+    OVERAGE_THRESHOLD_DOLLARS:             z.number().optional().default(50),      // Dollar threshold for incremental overage billing (default: $50)
 
     // Email & Communication
+    EMAIL_VERIFICATION_ENABLED:            z.boolean().optional(),                 // Enable email verification for user registration and login (defaults to false)
     RESEND_API_KEY:                        z.string().min(1).optional(),           // Resend API key for transactional emails
     FROM_EMAIL_ADDRESS:                    z.string().min(1).optional(),           // Complete from address (e.g., "Sim <noreply@domain.com>" or "noreply@domain.com")
     EMAIL_DOMAIN:                          z.string().min(1).optional(),           // Domain for sending emails (fallback when FROM_EMAIL_ADDRESS not set)
     AZURE_ACS_CONNECTION_STRING:           z.string().optional(),                  // Azure Communication Services connection string
+
+    // SMS & Messaging
+    TWILIO_ACCOUNT_SID:                    z.string().min(1).optional(),           // Twilio Account SID for SMS sending
+    TWILIO_AUTH_TOKEN:                     z.string().min(1).optional(),           // Twilio Auth Token for API authentication
+    TWILIO_PHONE_NUMBER:                   z.string().min(1).optional(),           // Twilio phone number for sending SMS
 
     // AI/LLM Provider API Keys
     OPENAI_API_KEY:                        z.string().min(1).optional(),           // Primary OpenAI API key
@@ -67,6 +79,8 @@ export const env = createEnv({
     OLLAMA_URL:                            z.string().url().optional(),            // Ollama local LLM server URL
     ELEVENLABS_API_KEY:                    z.string().min(1).optional(),           // ElevenLabs API key for text-to-speech in deployed chat
     SERPER_API_KEY:                        z.string().min(1).optional(),           // Serper API key for online search
+    EXA_API_KEY:                           z.string().min(1).optional(),           // Exa AI API key for enhanced online search
+    DEEPSEEK_MODELS_ENABLED:               z.boolean().optional().default(false),  // Enable Deepseek models in UI (defaults to false for compliance)
 
     // Azure Configuration - Shared credentials with feature-specific models
     AZURE_OPENAI_ENDPOINT:                 z.string().url().optional(),            // Shared Azure OpenAI service endpoint
@@ -81,23 +95,20 @@ export const env = createEnv({
     // Monitoring & Analytics
     TELEMETRY_ENDPOINT:                    z.string().url().optional(),            // Custom telemetry/analytics endpoint
     COST_MULTIPLIER:                       z.number().optional(),                  // Multiplier for cost calculations
-    SENTRY_ORG:                            z.string().optional(),                  // Sentry organization for error tracking
-    SENTRY_PROJECT:                        z.string().optional(),                  // Sentry project for error tracking
-    SENTRY_AUTH_TOKEN:                     z.string().optional(),                  // Sentry authentication token
     LOG_LEVEL:                             z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']).optional(), // Minimum log level to display (defaults to ERROR in production, DEBUG in development)
+    DRIZZLE_ODS_API_KEY:                   z.string().min(1).optional(),           // OneDollarStats API key for analytics tracking
 
     // External Services
-    JWT_SECRET:                            z.string().min(1).optional(),           // JWT signing secret for custom tokens
     BROWSERBASE_API_KEY:                   z.string().min(1).optional(),           // Browserbase API key for browser automation
     BROWSERBASE_PROJECT_ID:                z.string().min(1).optional(),           // Browserbase project ID
     GITHUB_TOKEN:                          z.string().optional(),                  // GitHub personal access token for API access
 
     // Infrastructure & Deployment
     NEXT_RUNTIME:                          z.string().optional(),                  // Next.js runtime environment
-    VERCEL_ENV:                            z.string().optional(),                  // Vercel deployment environment
     DOCKER_BUILD:                          z.boolean().optional(),                 // Flag indicating Docker build environment
 
     // Background Jobs & Scheduling
+    TRIGGER_PROJECT_ID:                    z.string().optional(),                  // Trigger.dev project ID
     TRIGGER_SECRET_KEY:                    z.string().min(1).optional(),           // Trigger.dev secret key for background jobs
     TRIGGER_DEV_ENABLED:                   z.boolean().optional(),                 // Toggle to enable/disable Trigger.dev for async jobs
     CRON_SECRET:                           z.string().optional(),                  // Secret for authenticating cron job requests
@@ -113,6 +124,7 @@ export const env = createEnv({
     S3_EXECUTION_FILES_BUCKET_NAME:        z.string().optional(),                  // S3 bucket for workflow execution files
     S3_CHAT_BUCKET_NAME:                   z.string().optional(),                  // S3 bucket for chat logos
     S3_COPILOT_BUCKET_NAME:                z.string().optional(),                  // S3 bucket for copilot files
+    S3_PROFILE_PICTURES_BUCKET_NAME:       z.string().optional(),                  // S3 bucket for profile pictures
 
     // Cloud Storage - Azure Blob 
     AZURE_ACCOUNT_NAME:                    z.string().optional(),                  // Azure storage account name
@@ -123,6 +135,7 @@ export const env = createEnv({
     AZURE_STORAGE_EXECUTION_FILES_CONTAINER_NAME: z.string().optional(),          // Azure container for workflow execution files
     AZURE_STORAGE_CHAT_CONTAINER_NAME:     z.string().optional(),                  // Azure container for chat logos
     AZURE_STORAGE_COPILOT_CONTAINER_NAME:  z.string().optional(),                  // Azure container for copilot files
+    AZURE_STORAGE_PROFILE_PICTURES_CONTAINER_NAME: z.string().optional(),          // Azure container for profile pictures
 
     // Data Retention
     FREE_PLAN_LOG_RETENTION_DAYS:          z.string().optional(),                  // Log retention days for free plan users
@@ -140,7 +153,7 @@ export const env = createEnv({
     RATE_LIMIT_ENTERPRISE_ASYNC:           z.string().optional().default('1000'),  // Enterprise tier async API executions per minute
 
     // Knowledge Base Processing Configuration - Shared across all processing methods
-    KB_CONFIG_MAX_DURATION:                z.number().optional().default(300),     // Max processing duration in s
+    KB_CONFIG_MAX_DURATION:                z.number().optional().default(600),     // Max processing duration in seconds (10 minutes)
     KB_CONFIG_MAX_ATTEMPTS:                z.number().optional().default(3),       // Max retry attempts
     KB_CONFIG_RETRY_FACTOR:                z.number().optional().default(2),       // Retry backoff factor
     KB_CONFIG_MIN_TIMEOUT:                 z.number().optional().default(1000),    // Min timeout in ms
@@ -169,8 +182,11 @@ export const env = createEnv({
     CONFLUENCE_CLIENT_SECRET:              z.string().optional(),                  // Atlassian Confluence OAuth client secret
     JIRA_CLIENT_ID:                        z.string().optional(),                  // Atlassian Jira OAuth client ID
     JIRA_CLIENT_SECRET:                    z.string().optional(),                  // Atlassian Jira OAuth client secret
+    ASANA_CLIENT_ID:                       z.string().optional(),                  // Asana OAuth client ID
+    ASANA_CLIENT_SECRET:                   z.string().optional(),                  // Asana OAuth client secret
     AIRTABLE_CLIENT_ID:                    z.string().optional(),                  // Airtable OAuth client ID
     AIRTABLE_CLIENT_SECRET:                z.string().optional(),                  // Airtable OAuth client secret
+    APOLLO_API_KEY:                        z.string().optional(),                  // Apollo API key (optional system-wide config)
     SUPABASE_CLIENT_ID:                    z.string().optional(),                  // Supabase OAuth client ID
     SUPABASE_CLIENT_SECRET:                z.string().optional(),                  // Supabase OAuth client secret
     NOTION_CLIENT_ID:                      z.string().optional(),                  // Notion OAuth client ID
@@ -181,31 +197,71 @@ export const env = createEnv({
     MICROSOFT_CLIENT_SECRET:               z.string().optional(),                  // Microsoft OAuth client secret
     HUBSPOT_CLIENT_ID:                     z.string().optional(),                  // HubSpot OAuth client ID
     HUBSPOT_CLIENT_SECRET:                 z.string().optional(),                  // HubSpot OAuth client secret
+    SALESFORCE_CLIENT_ID:                  z.string().optional(),                  // Salesforce OAuth client ID
+    SALESFORCE_CLIENT_SECRET:              z.string().optional(),                  // Salesforce OAuth client secret
     WEALTHBOX_CLIENT_ID:                   z.string().optional(),                  // WealthBox OAuth client ID
     WEALTHBOX_CLIENT_SECRET:               z.string().optional(),                  // WealthBox OAuth client secret
+    PIPEDRIVE_CLIENT_ID:                   z.string().optional(),                  // Pipedrive OAuth client ID
+    PIPEDRIVE_CLIENT_SECRET:               z.string().optional(),                  // Pipedrive OAuth client secret
     LINEAR_CLIENT_ID:                      z.string().optional(),                  // Linear OAuth client ID
     LINEAR_CLIENT_SECRET:                  z.string().optional(),                  // Linear OAuth client secret
     SLACK_CLIENT_ID:                       z.string().optional(),                  // Slack OAuth client ID
     SLACK_CLIENT_SECRET:                   z.string().optional(),                  // Slack OAuth client secret
     REDDIT_CLIENT_ID:                      z.string().optional(),                  // Reddit OAuth client ID
     REDDIT_CLIENT_SECRET:                  z.string().optional(),                  // Reddit OAuth client secret
+    WEBFLOW_CLIENT_ID:                     z.string().optional(),                  // Webflow OAuth client ID
+    WEBFLOW_CLIENT_SECRET:                 z.string().optional(),                  // Webflow OAuth client secret
+    TRELLO_API_KEY:                        z.string().optional(),                  // Trello API Key
 
     // E2B Remote Code Execution
     E2B_ENABLED:                           z.string().optional(),                  // Enable E2B remote code execution
     E2B_API_KEY:                           z.string().optional(),                  // E2B API key for sandbox creation
+
+    // SSO Configuration (for script-based registration)
+    SSO_ENABLED:                           z.boolean().optional(),                 // Enable SSO functionality
+    SSO_PROVIDER_TYPE:                     z.enum(['oidc', 'saml']).optional(),    // [REQUIRED] SSO provider type
+    SSO_PROVIDER_ID:                       z.string().optional(),                  // [REQUIRED] SSO provider ID
+    SSO_ISSUER:                            z.string().optional(),                  // [REQUIRED] SSO issuer URL
+    SSO_DOMAIN:                            z.string().optional(),                  // [REQUIRED] SSO email domain
+    SSO_USER_EMAIL:                        z.string().optional(),                  // [REQUIRED] User email for SSO registration
+    SSO_ORGANIZATION_ID:                   z.string().optional(),                  // Organization ID for SSO registration (optional)
+
+    // SSO Mapping Configuration (optional - sensible defaults provided)
+    SSO_MAPPING_ID:                        z.string().optional(),                  // Custom ID claim mapping (default: sub for OIDC, nameidentifier for SAML)
+    SSO_MAPPING_EMAIL:                     z.string().optional(),                  // Custom email claim mapping (default: email for OIDC, emailaddress for SAML)
+    SSO_MAPPING_NAME:                      z.string().optional(),                  // Custom name claim mapping (default: name for both)
+    SSO_MAPPING_IMAGE:                     z.string().optional(),                  // Custom image claim mapping (default: picture for OIDC)
+
+    // SSO OIDC Configuration
+    SSO_OIDC_CLIENT_ID:                    z.string().optional(),                  // [REQUIRED for OIDC] OIDC client ID
+    SSO_OIDC_CLIENT_SECRET:                z.string().optional(),                  // [REQUIRED for OIDC] OIDC client secret
+    SSO_OIDC_SCOPES:                       z.string().optional(),                  // OIDC scopes (default: openid,profile,email)
+    SSO_OIDC_PKCE:                         z.string().optional(),                  // Enable PKCE (default: true)
+    SSO_OIDC_AUTHORIZATION_ENDPOINT:       z.string().optional(),                  // OIDC authorization endpoint (optional, uses discovery)
+    SSO_OIDC_TOKEN_ENDPOINT:               z.string().optional(),                  // OIDC token endpoint (optional, uses discovery)
+    SSO_OIDC_USERINFO_ENDPOINT:            z.string().optional(),                  // OIDC userinfo endpoint (optional, uses discovery)
+    SSO_OIDC_JWKS_ENDPOINT:                z.string().optional(),                  // OIDC JWKS endpoint (optional, uses discovery)
+    SSO_OIDC_DISCOVERY_ENDPOINT:           z.string().optional(),                  // OIDC discovery endpoint (default: {issuer}/.well-known/openid-configuration)
+
+    // SSO SAML Configuration
+    SSO_SAML_ENTRY_POINT:                  z.string().optional(),                  // [REQUIRED for SAML] SAML IdP SSO URL
+    SSO_SAML_CERT:                         z.string().optional(),                  // [REQUIRED for SAML] SAML IdP certificate
+    SSO_SAML_CALLBACK_URL:                 z.string().optional(),                  // SAML callback URL (default: {issuer}/callback)
+    SSO_SAML_SP_METADATA:                  z.string().optional(),                  // SAML SP metadata XML (auto-generated if not provided)
+    SSO_SAML_IDP_METADATA:                 z.string().optional(),                  // SAML IdP metadata XML (optional)
+    SSO_SAML_AUDIENCE:                     z.string().optional(),                  // SAML audience restriction (default: issuer URL)
+    SSO_SAML_WANT_ASSERTIONS_SIGNED:       z.string().optional(),                  // Require signed SAML assertions (default: false)
+    SSO_SAML_SIGNATURE_ALGORITHM:          z.string().optional(),                  // SAML signature algorithm (optional)
+    SSO_SAML_DIGEST_ALGORITHM:             z.string().optional(),                  // SAML digest algorithm (optional)
+    SSO_SAML_IDENTIFIER_FORMAT:            z.string().optional(),                  // SAML identifier format (optional)
   },
 
   client: {
     // Core Application URLs - Required for frontend functionality
-    NEXT_PUBLIC_APP_URL:                   z.string().url(),                       // Base URL of the application (e.g., https://app.sim.ai)
-    NEXT_PUBLIC_VERCEL_URL:                z.string().optional(),                  // Vercel deployment URL for preview/production
+    NEXT_PUBLIC_APP_URL:                   z.string().url(),                       // Base URL of the application (e.g., https://www.sim.ai)
 
     // Client-side Services
-    NEXT_PUBLIC_SENTRY_DSN:                z.string().url().optional(),            // Sentry DSN for client-side error tracking
     NEXT_PUBLIC_SOCKET_URL:                z.string().url().optional(),            // WebSocket server URL for real-time features
-
-    // Asset Storage
-    NEXT_PUBLIC_BLOB_BASE_URL:             z.string().url().optional(),            // Base URL for Vercel Blob storage (CDN assets)
     
     // Billing
     NEXT_PUBLIC_BILLING_ENABLED:           z.boolean().optional(),                 // Enable billing enforcement and usage tracking (client-side)
@@ -214,9 +270,10 @@ export const env = createEnv({
     NEXT_PUBLIC_GOOGLE_CLIENT_ID:          z.string().optional(),                  // Google OAuth client ID for browser auth
     
     // Analytics & Tracking
-    NEXT_PUBLIC_RB2B_KEY:                  z.string().optional(),                  // RB2B tracking key for B2B analytics
     NEXT_PUBLIC_GOOGLE_API_KEY:            z.string().optional(),                  // Google API key for client-side API calls
     NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER:     z.string().optional(),                  // Google project number for Drive picker
+    NEXT_PUBLIC_POSTHOG_ENABLED:           z.boolean().optional(),                 // Enable PostHog analytics (client-side)
+    NEXT_PUBLIC_POSTHOG_KEY:               z.string().optional(),                  // PostHog project API key
 
     // UI Branding & Whitelabeling
     NEXT_PUBLIC_BRAND_NAME:                z.string().optional(),                  // Custom brand name (defaults to "Sim")
@@ -225,7 +282,8 @@ export const env = createEnv({
     NEXT_PUBLIC_CUSTOM_CSS_URL:            z.string().url().optional(),            // Custom CSS stylesheet URL
     NEXT_PUBLIC_SUPPORT_EMAIL:             z.string().email().optional(),          // Custom support email
 
-    NEXT_PUBLIC_E2B_ENABLED:               z.string().optional(),                  // Enable E2B remote code execution (client-side)
+    NEXT_PUBLIC_E2B_ENABLED:               z.string().optional(),
+    NEXT_PUBLIC_COPILOT_TRAINING_ENABLED:  z.string().optional(),                  
     NEXT_PUBLIC_DOCUMENTATION_URL:         z.string().url().optional(),            // Custom documentation URL
     NEXT_PUBLIC_TERMS_URL:                 z.string().url().optional(),            // Custom terms of service URL
     NEXT_PUBLIC_PRIVACY_URL:               z.string().url().optional(),            // Custom privacy policy URL
@@ -233,13 +291,14 @@ export const env = createEnv({
     // Theme Customization
     NEXT_PUBLIC_BRAND_PRIMARY_COLOR:       z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),     // Primary brand color (hex format, e.g., "#701ffc")
     NEXT_PUBLIC_BRAND_PRIMARY_HOVER_COLOR: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),    // Primary brand hover state (hex format)
-    NEXT_PUBLIC_BRAND_SECONDARY_COLOR:     z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),     // Secondary brand color (hex format)
     NEXT_PUBLIC_BRAND_ACCENT_COLOR:        z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),     // Accent brand color (hex format)
     NEXT_PUBLIC_BRAND_ACCENT_HOVER_COLOR:  z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),     // Accent brand hover state (hex format)
     NEXT_PUBLIC_BRAND_BACKGROUND_COLOR:    z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),     // Brand background color (hex format)
 
     // Feature Flags
     NEXT_PUBLIC_TRIGGER_DEV_ENABLED:       z.boolean().optional(),                 // Client-side gate for async executions UI
+    NEXT_PUBLIC_SSO_ENABLED:               z.boolean().optional(),                 // Enable SSO login UI components
+    NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: z.boolean().optional().default(true), // Control visibility of email/password login forms
   },
 
   // Variables available on both server and client
@@ -250,12 +309,8 @@ export const env = createEnv({
 
   experimental__runtimeEnv: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_VERCEL_URL: process.env.NEXT_PUBLIC_VERCEL_URL,
-    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
-    NEXT_PUBLIC_BLOB_BASE_URL: process.env.NEXT_PUBLIC_BLOB_BASE_URL,
     NEXT_PUBLIC_BILLING_ENABLED: process.env.NEXT_PUBLIC_BILLING_ENABLED,
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-    NEXT_PUBLIC_RB2B_KEY: process.env.NEXT_PUBLIC_RB2B_KEY,
     NEXT_PUBLIC_GOOGLE_API_KEY: process.env.NEXT_PUBLIC_GOOGLE_API_KEY,
     NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER: process.env.NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER,
     NEXT_PUBLIC_SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL,
@@ -269,12 +324,16 @@ export const env = createEnv({
     NEXT_PUBLIC_PRIVACY_URL: process.env.NEXT_PUBLIC_PRIVACY_URL,
     NEXT_PUBLIC_BRAND_PRIMARY_COLOR: process.env.NEXT_PUBLIC_BRAND_PRIMARY_COLOR,
     NEXT_PUBLIC_BRAND_PRIMARY_HOVER_COLOR: process.env.NEXT_PUBLIC_BRAND_PRIMARY_HOVER_COLOR,
-    NEXT_PUBLIC_BRAND_SECONDARY_COLOR: process.env.NEXT_PUBLIC_BRAND_SECONDARY_COLOR,
     NEXT_PUBLIC_BRAND_ACCENT_COLOR: process.env.NEXT_PUBLIC_BRAND_ACCENT_COLOR,
     NEXT_PUBLIC_BRAND_ACCENT_HOVER_COLOR: process.env.NEXT_PUBLIC_BRAND_ACCENT_HOVER_COLOR,
     NEXT_PUBLIC_BRAND_BACKGROUND_COLOR: process.env.NEXT_PUBLIC_BRAND_BACKGROUND_COLOR,
     NEXT_PUBLIC_TRIGGER_DEV_ENABLED: process.env.NEXT_PUBLIC_TRIGGER_DEV_ENABLED,
+    NEXT_PUBLIC_SSO_ENABLED: process.env.NEXT_PUBLIC_SSO_ENABLED,
+    NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: process.env.NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED,
     NEXT_PUBLIC_E2B_ENABLED: process.env.NEXT_PUBLIC_E2B_ENABLED,
+    NEXT_PUBLIC_COPILOT_TRAINING_ENABLED: process.env.NEXT_PUBLIC_COPILOT_TRAINING_ENABLED,
+    NEXT_PUBLIC_POSTHOG_ENABLED: process.env.NEXT_PUBLIC_POSTHOG_ENABLED,
+    NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
   },
@@ -283,5 +342,9 @@ export const env = createEnv({
 // Need this utility because t3-env is returning string for boolean values.
 export const isTruthy = (value: string | boolean | number | undefined) =>
   typeof value === 'string' ? value.toLowerCase() === 'true' || value === '1' : Boolean(value)
+
+// Utility to check if a value is explicitly false (defaults to false only if explicitly set)
+export const isFalsy = (value: string | boolean | number | undefined) =>
+  typeof value === 'string' ? value.toLowerCase() === 'false' || value === '0' : value === false
 
 export { getEnv }

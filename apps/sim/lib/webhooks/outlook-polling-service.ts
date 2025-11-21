@@ -1,12 +1,12 @@
+import { db } from '@sim/db'
+import { account, webhook } from '@sim/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { htmlToText } from 'html-to-text'
 import { nanoid } from 'nanoid'
+import { pollingIdempotency } from '@/lib/idempotency'
 import { createLogger } from '@/lib/logs/console/logger'
-import { hasProcessedMessage, markMessageAsProcessed } from '@/lib/redis'
 import { getBaseUrl } from '@/lib/urls/utils'
 import { getOAuthToken, refreshAccessTokenIfNeeded } from '@/app/api/auth/oauth/utils'
-import { db } from '@/db'
-import { account, webhook } from '@/db/schema'
 
 const logger = createLogger('OutlookPollingService')
 
@@ -17,8 +17,8 @@ interface OutlookWebhookConfig {
   markAsRead?: boolean
   maxEmailsPerPoll?: number
   lastCheckedTimestamp?: string
-  processedEmailIds?: string[]
   pollingInterval?: number
+  includeAttachments?: boolean
   includeRawEmail?: boolean
 }
 
@@ -56,6 +56,13 @@ interface OutlookEmail {
   parentFolderId: string
 }
 
+export interface OutlookAttachment {
+  name: string
+  data: Buffer
+  contentType: string
+  size: number
+}
+
 export interface SimplifiedOutlookEmail {
   id: string
   conversationId: string
@@ -67,6 +74,7 @@ export interface SimplifiedOutlookEmail {
   bodyText: string
   bodyHtml: string
   hasAttachments: boolean
+  attachments: OutlookAttachment[]
   isRead: boolean
   folderId: string
   // Thread support fields
@@ -179,42 +187,24 @@ export async function pollOutlookWebhooks() {
 
         logger.info(`[${requestId}] Found ${emails.length} emails for webhook ${webhookId}`)
 
-        // Filter out already processed emails
-        const processedEmailIds = config.processedEmailIds || []
-        const newEmails = emails.filter((email) => !processedEmailIds.includes(email.id))
-
-        if (!newEmails.length) {
-          logger.info(`[${requestId}] All emails already processed for webhook ${webhookId}`)
-          await updateWebhookLastChecked(webhookId, now.toISOString())
-          return { success: true, webhookId, status: 'all_processed' }
-        }
-
-        logger.info(
-          `[${requestId}] Processing ${newEmails.length} new emails for webhook ${webhookId}`
-        )
+        logger.info(`[${requestId}] Processing ${emails.length} emails for webhook ${webhookId}`)
 
         // Process emails
         const processed = await processOutlookEmails(
-          newEmails,
+          emails,
           webhookData,
           config,
           accessToken,
           requestId
         )
 
-        // Record which email IDs have been processed
-        const newProcessedIds = [...processedEmailIds, ...newEmails.map((email) => email.id)]
-        // Keep only the most recent 100 IDs to prevent the list from growing too large
-        const trimmedProcessedIds = newProcessedIds.slice(-100)
-
-        // Update webhook with latest timestamp and processed email IDs
-        await updateWebhookData(webhookId, now.toISOString(), trimmedProcessedIds)
+        // Update webhook with latest timestamp
+        await updateWebhookLastChecked(webhookId, now.toISOString())
 
         return {
           success: true,
           webhookId,
           emailsFound: emails.length,
-          newEmails: newEmails.length,
           emailsProcessed: processed,
         }
       } catch (error) {
@@ -358,97 +348,175 @@ async function processOutlookEmails(
 
   for (const email of emails) {
     try {
-      // Check if we've already processed this email (Redis-based deduplication)
-      const redisKey = `outlook-email-${email.id}`
-      const alreadyProcessed = await hasProcessedMessage(redisKey)
-
-      if (alreadyProcessed) {
-        logger.debug(`[${requestId}] Email ${email.id} already processed, skipping`)
-        continue
-      }
-
-      // Convert to simplified format
-      const simplifiedEmail: SimplifiedOutlookEmail = {
-        id: email.id,
-        conversationId: email.conversationId,
-        subject: email.subject || '(No Subject)',
-        from: email.from?.emailAddress?.address || '',
-        to: email.toRecipients?.map((r) => r.emailAddress.address).join(', ') || '',
-        cc: email.ccRecipients?.map((r) => r.emailAddress.address).join(', ') || '',
-        date: email.receivedDateTime,
-        bodyText: (() => {
-          const content = email.body?.content || ''
-          const type = (email.body?.contentType || '').toLowerCase()
-          if (!content) {
-            return email.bodyPreview || ''
+      const result = await pollingIdempotency.executeWithIdempotency(
+        'outlook',
+        `${webhookData.id}:${email.id}`,
+        async () => {
+          let attachments: OutlookAttachment[] = []
+          if (config.includeAttachments && email.hasAttachments) {
+            try {
+              attachments = await downloadOutlookAttachments(accessToken, email.id, requestId)
+            } catch (error) {
+              logger.error(
+                `[${requestId}] Error downloading attachments for email ${email.id}:`,
+                error
+              )
+            }
           }
-          if (type === 'text' || type === 'text/plain') {
-            return content
+
+          // Convert to simplified format
+          const simplifiedEmail: SimplifiedOutlookEmail = {
+            id: email.id,
+            conversationId: email.conversationId,
+            subject: email.subject || '',
+            from: email.from?.emailAddress?.address || '',
+            to: email.toRecipients?.map((r) => r.emailAddress.address).join(', ') || '',
+            cc: email.ccRecipients?.map((r) => r.emailAddress.address).join(', ') || '',
+            date: email.receivedDateTime,
+            bodyText: (() => {
+              const content = email.body?.content || ''
+              const type = (email.body?.contentType || '').toLowerCase()
+              if (!content) {
+                return email.bodyPreview || ''
+              }
+              if (type === 'text' || type === 'text/plain') {
+                return content
+              }
+              return convertHtmlToPlainText(content)
+            })(),
+            bodyHtml: email.body?.content || '',
+            hasAttachments: email.hasAttachments,
+            attachments,
+            isRead: email.isRead,
+            folderId: email.parentFolderId,
+            // Thread support fields
+            messageId: email.id,
+            threadId: email.conversationId,
           }
-          return convertHtmlToPlainText(content)
-        })(),
-        bodyHtml: email.body?.content || '',
-        hasAttachments: email.hasAttachments,
-        isRead: email.isRead,
-        folderId: email.parentFolderId,
-        // Thread support fields
-        messageId: email.id,
-        threadId: email.conversationId,
-      }
 
-      // Create webhook payload
-      const payload: OutlookWebhookPayload = {
-        email: simplifiedEmail,
-        timestamp: new Date().toISOString(),
-      }
+          // Create webhook payload
+          const payload: OutlookWebhookPayload = {
+            email: simplifiedEmail,
+            timestamp: new Date().toISOString(),
+          }
 
-      // Include raw email if configured
-      if (config.includeRawEmail) {
-        payload.rawEmail = email
-      }
+          // Include raw email if configured
+          if (config.includeRawEmail) {
+            payload.rawEmail = email
+          }
 
-      logger.info(
-        `[${requestId}] Processing email: ${email.subject} from ${email.from?.emailAddress?.address}`
+          logger.info(
+            `[${requestId}] Processing email: ${email.subject} from ${email.from?.emailAddress?.address}`
+          )
+
+          // Trigger the webhook
+          const webhookUrl = `${getBaseUrl()}/api/webhooks/trigger/${webhookData.path}`
+
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Webhook-Secret': webhookData.secret || '',
+              'User-Agent': 'SimStudio/1.0',
+            },
+            body: JSON.stringify(payload),
+          })
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            logger.error(
+              `[${requestId}] Failed to trigger webhook for email ${email.id}:`,
+              response.status,
+              errorText
+            )
+            throw new Error(`Webhook request failed: ${response.status} - ${errorText}`)
+          }
+
+          // Mark email as read if configured
+          if (config.markAsRead) {
+            await markOutlookEmailAsRead(accessToken, email.id)
+          }
+
+          return {
+            emailId: email.id,
+            webhookStatus: response.status,
+            processed: true,
+          }
+        }
       )
 
-      // Trigger the webhook
-      const webhookUrl = `${getBaseUrl()}/api/webhooks/trigger/${webhookData.path}`
-
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Webhook-Secret': webhookData.secret || '',
-          'User-Agent': 'SimStudio/1.0',
-        },
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        logger.error(
-          `[${requestId}] Failed to trigger webhook for email ${email.id}:`,
-          response.status,
-          await response.text()
-        )
-        continue
-      }
-
-      // Mark email as read if configured
-      if (config.markAsRead) {
-        await markOutlookEmailAsRead(accessToken, email.id)
-      }
-
-      // Mark as processed in Redis (expires after 7 days)
-      await markMessageAsProcessed(redisKey, 7 * 24 * 60 * 60)
-
+      logger.info(
+        `[${requestId}] Successfully processed email ${email.id} for webhook ${webhookData.id}`
+      )
       processedCount++
-      logger.info(`[${requestId}] Successfully processed email ${email.id}`)
     } catch (error) {
       logger.error(`[${requestId}] Error processing email ${email.id}:`, error)
     }
   }
 
   return processedCount
+}
+
+async function downloadOutlookAttachments(
+  accessToken: string,
+  messageId: string,
+  requestId: string
+): Promise<OutlookAttachment[]> {
+  const attachments: OutlookAttachment[] = []
+
+  try {
+    // Fetch attachments list from Microsoft Graph API
+    const response = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${messageId}/attachments`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      logger.error(`[${requestId}] Failed to fetch attachments for message ${messageId}`)
+      return attachments
+    }
+
+    const data = await response.json()
+    const attachmentsList = data.value || []
+
+    for (const attachment of attachmentsList) {
+      try {
+        // Microsoft Graph returns attachment data directly in the list response for file attachments
+        if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment') {
+          const contentBytes = attachment.contentBytes
+          if (contentBytes) {
+            // contentBytes is base64 encoded
+            const buffer = Buffer.from(contentBytes, 'base64')
+            attachments.push({
+              name: attachment.name,
+              data: buffer,
+              contentType: attachment.contentType,
+              size: attachment.size,
+            })
+          }
+        }
+      } catch (error) {
+        logger.error(
+          `[${requestId}] Error processing attachment ${attachment.id} for message ${messageId}:`,
+          error
+        )
+        // Continue with other attachments
+      }
+    }
+
+    logger.info(
+      `[${requestId}] Downloaded ${attachments.length} attachments for message ${messageId}`
+    )
+  } catch (error) {
+    logger.error(`[${requestId}] Error downloading attachments for message ${messageId}:`, error)
+  }
+
+  return attachments
 }
 
 async function markOutlookEmailAsRead(accessToken: string, messageId: string) {
@@ -505,41 +573,5 @@ async function updateWebhookLastChecked(webhookId: string, timestamp: string) {
       .where(eq(webhook.id, webhookId))
   } catch (error) {
     logger.error(`Error updating webhook ${webhookId} last checked timestamp:`, error)
-  }
-}
-
-async function updateWebhookData(
-  webhookId: string,
-  timestamp: string,
-  processedEmailIds: string[]
-) {
-  try {
-    const currentWebhook = await db
-      .select({ providerConfig: webhook.providerConfig })
-      .from(webhook)
-      .where(eq(webhook.id, webhookId))
-      .limit(1)
-
-    if (!currentWebhook.length) {
-      logger.error(`Webhook ${webhookId} not found`)
-      return
-    }
-
-    const currentConfig = (currentWebhook[0].providerConfig as any) || {}
-    const updatedConfig = {
-      ...currentConfig, // Preserve ALL existing config including userId
-      lastCheckedTimestamp: timestamp,
-      processedEmailIds,
-    }
-
-    await db
-      .update(webhook)
-      .set({
-        providerConfig: updatedConfig,
-        updatedAt: new Date(),
-      })
-      .where(eq(webhook.id, webhookId))
-  } catch (error) {
-    logger.error(`Error updating webhook ${webhookId} data:`, error)
   }
 }

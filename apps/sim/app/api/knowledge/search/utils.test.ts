@@ -15,7 +15,7 @@ vi.mock('@/lib/logs/console/logger', () => ({
     error: vi.fn(),
   })),
 }))
-vi.mock('@/db')
+vi.mock('@sim/db')
 vi.mock('@/lib/knowledge/documents/utils', () => ({
   retryWithExponentialBackoff: (fn: any) => fn(),
 }))
@@ -32,6 +32,7 @@ vi.stubGlobal(
 
 vi.mock('@/lib/env', () => ({
   env: {},
+  getEnv: (key: string) => process.env[key],
   isTruthy: (value: string | boolean | number | undefined) =>
     typeof value === 'string' ? value === 'true' || value === '1' : Boolean(value),
 }))
@@ -420,6 +421,16 @@ describe('Knowledge Search Utils', () => {
 
       // Clean up
       Object.keys(env).forEach((key) => delete (env as any)[key])
+    })
+  })
+
+  describe('getDocumentNamesByIds', () => {
+    it('should handle empty input gracefully', async () => {
+      const { getDocumentNamesByIds } = await import('./utils')
+
+      const result = await getDocumentNamesByIds([])
+
+      expect(result).toEqual({})
     })
   })
 })
