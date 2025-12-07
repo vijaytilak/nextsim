@@ -1,5 +1,5 @@
 import { AgentIcon } from '@/components/icons'
-import { isHosted } from '@/lib/environment'
+import { isHosted } from '@/lib/core/config/environment'
 import { createLogger } from '@/lib/logs/console/logger'
 import type { BlockConfig } from '@/blocks/types'
 import { AuthMode } from '@/blocks/types'
@@ -16,6 +16,10 @@ import {
 
 const getCurrentOllamaModels = () => {
   return useProvidersStore.getState().providers.ollama.models
+}
+
+const getCurrentVLLMModels = () => {
+  return useProvidersStore.getState().providers.vllm.models
 }
 
 import { useProvidersStore } from '@/stores/providers/store'
@@ -86,12 +90,16 @@ export const AgentBlock: BlockConfig<AgentResponse> = {
       type: 'combobox',
       placeholder: 'Type or select a model...',
       required: true,
+      defaultValue: 'claude-sonnet-4-5',
       options: () => {
         const providersState = useProvidersStore.getState()
         const baseModels = providersState.providers.base.models
         const ollamaModels = providersState.providers.ollama.models
+        const vllmModels = providersState.providers.vllm.models
         const openrouterModels = providersState.providers.openrouter.models
-        const allModels = Array.from(new Set([...baseModels, ...ollamaModels, ...openrouterModels]))
+        const allModels = Array.from(
+          new Set([...baseModels, ...ollamaModels, ...vllmModels, ...openrouterModels])
+        )
 
         return allModels.map((model) => {
           const icon = getProviderIcon(model)
@@ -172,7 +180,7 @@ export const AgentBlock: BlockConfig<AgentResponse> = {
       password: true,
       connectionDroppable: false,
       required: true,
-      // Hide API key for hosted models and Ollama models
+      // Hide API key for hosted models, Ollama models, and vLLM models
       condition: isHosted
         ? {
             field: 'model',
@@ -181,8 +189,8 @@ export const AgentBlock: BlockConfig<AgentResponse> = {
           }
         : () => ({
             field: 'model',
-            value: getCurrentOllamaModels(),
-            not: true, // Show for all models EXCEPT Ollama models
+            value: [...getCurrentOllamaModels(), ...getCurrentVLLMModels()],
+            not: true, // Show for all models EXCEPT Ollama and vLLM models
           }),
     },
     {
@@ -238,7 +246,7 @@ export const AgentBlock: BlockConfig<AgentResponse> = {
       type: 'slider',
       min: 0,
       max: 1,
-      defaultValue: 0.5,
+      defaultValue: 0.3,
       condition: () => ({
         field: 'model',
         value: (() => {
@@ -255,7 +263,7 @@ export const AgentBlock: BlockConfig<AgentResponse> = {
       type: 'slider',
       min: 0,
       max: 2,
-      defaultValue: 1,
+      defaultValue: 0.3,
       condition: () => ({
         field: 'model',
         value: (() => {
@@ -376,7 +384,7 @@ Example 3 (Array Input):
     ],
     config: {
       tool: (params: Record<string, any>) => {
-        const model = params.model || 'gpt-4o'
+        const model = params.model || 'claude-sonnet-4-5'
         if (!model) {
           throw new Error('No model selected')
         }

@@ -3,11 +3,9 @@ import { tasks } from '@trigger.dev/sdk'
 import { and, eq } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { checkServerSideUsageLimits } from '@/lib/billing'
-import { getHighestPrioritySubscription } from '@/lib/billing/core/subscription'
-import { env, isTruthy } from '@/lib/env'
+import { env, isTruthy } from '@/lib/core/config/env'
+import { preprocessExecution } from '@/lib/execution/preprocessing'
 import { createLogger } from '@/lib/logs/console/logger'
-import { LoggingSession } from '@/lib/logs/execution/logging-session'
 import { convertSquareBracketsToTwiML } from '@/lib/webhooks/utils'
 import {
   handleSlackChallenge,
@@ -15,9 +13,7 @@ import {
   validateMicrosoftTeamsSignature,
   verifyProviderWebhook,
 } from '@/lib/webhooks/utils.server'
-import { getWorkspaceBilledAccountUserId } from '@/lib/workspaces/utils'
 import { executeWebhookJob } from '@/background/webhook-execution'
-import { RateLimiter } from '@/services/queue'
 
 const logger = createLogger('WebhookProcessor')
 
@@ -40,20 +36,6 @@ function getExternalUrl(request: NextRequest): string {
   }
 
   return request.url
-}
-
-async function resolveWorkflowActorUserId(foundWorkflow: {
-  workspaceId?: string | null
-  userId?: string | null
-}): Promise<string | null> {
-  if (foundWorkflow?.workspaceId) {
-    const billedAccount = await getWorkspaceBilledAccountUserId(foundWorkflow.workspaceId)
-    if (billedAccount) {
-      return billedAccount
-    }
-  }
-
-  return foundWorkflow?.userId ?? null
 }
 
 export async function parseWebhookBody(
@@ -509,157 +491,70 @@ export async function verifyProviderAuth(
   return null
 }
 
-export async function checkRateLimits(
+/**
+ * Run preprocessing checks for webhook execution
+ * This replaces the old checkRateLimits and checkUsageLimits functions
+ */
+export async function checkWebhookPreprocessing(
   foundWorkflow: any,
   foundWebhook: any,
   requestId: string
 ): Promise<NextResponse | null> {
   try {
-    const actorUserId = await resolveWorkflowActorUserId(foundWorkflow)
+    const executionId = uuidv4()
 
-    if (!actorUserId) {
-      logger.warn(`[${requestId}] Webhook requires a workspace billing account to attribute usage`)
-      return NextResponse.json({ error: 'Workspace billing account required' }, { status: 402 })
-    }
+    const preprocessResult = await preprocessExecution({
+      workflowId: foundWorkflow.id,
+      userId: foundWorkflow.userId,
+      triggerType: 'webhook',
+      executionId,
+      requestId,
+      checkRateLimit: true, // Webhooks need rate limiting
+      checkDeployment: true, // Webhooks require deployed workflows
+      workspaceId: foundWorkflow.workspaceId,
+    })
 
-    const userSubscription = await getHighestPrioritySubscription(actorUserId)
-
-    const rateLimiter = new RateLimiter()
-    const rateLimitCheck = await rateLimiter.checkRateLimitWithSubscription(
-      actorUserId,
-      userSubscription,
-      'webhook',
-      true
-    )
-
-    if (!rateLimitCheck.allowed) {
-      logger.warn(`[${requestId}] Rate limit exceeded for webhook user ${actorUserId}`, {
+    if (!preprocessResult.success) {
+      const error = preprocessResult.error!
+      logger.warn(`[${requestId}] Webhook preprocessing failed`, {
         provider: foundWebhook.provider,
-        remaining: rateLimitCheck.remaining,
-        resetAt: rateLimitCheck.resetAt,
-      })
-
-      const executionId = uuidv4()
-      const loggingSession = new LoggingSession(foundWorkflow.id, executionId, 'webhook', requestId)
-
-      await loggingSession.safeStart({
-        userId: actorUserId,
-        workspaceId: foundWorkflow.workspaceId || '',
-        variables: {},
-      })
-
-      await loggingSession.safeCompleteWithError({
-        error: {
-          message: `Rate limit exceeded. ${rateLimitCheck.remaining || 0} requests remaining. Resets at ${rateLimitCheck.resetAt ? new Date(rateLimitCheck.resetAt).toISOString() : 'unknown'}. Please try again later.`,
-          stackTrace: undefined,
-        },
-        traceSpans: [],
+        error: error.message,
+        statusCode: error.statusCode,
       })
 
       if (foundWebhook.provider === 'microsoft-teams') {
         return NextResponse.json(
           {
             type: 'message',
-            text: 'Rate limit exceeded. Please try again later.',
+            text: error.message,
           },
-          { status: 429 }
+          { status: error.statusCode }
         )
       }
 
-      return NextResponse.json(
-        { error: 'Rate limit exceeded. Please try again later.' },
-        { status: 429 }
-      )
+      return NextResponse.json({ error: error.message }, { status: error.statusCode })
     }
 
-    logger.debug(`[${requestId}] Rate limit check passed for webhook`, {
+    logger.debug(`[${requestId}] Webhook preprocessing passed`, {
       provider: foundWebhook.provider,
-      remaining: rateLimitCheck.remaining,
-      resetAt: rateLimitCheck.resetAt,
     })
-  } catch (rateLimitError) {
-    logger.error(`[${requestId}] Error checking webhook rate limits:`, rateLimitError)
-  }
 
-  return null
-}
-
-export async function checkUsageLimits(
-  foundWorkflow: any,
-  foundWebhook: any,
-  requestId: string,
-  testMode: boolean
-): Promise<NextResponse | null> {
-  if (testMode) {
-    logger.debug(`[${requestId}] Skipping usage limit check for test webhook`)
     return null
-  }
+  } catch (preprocessError) {
+    logger.error(`[${requestId}] Error during webhook preprocessing:`, preprocessError)
 
-  try {
-    const actorUserId = await resolveWorkflowActorUserId(foundWorkflow)
-
-    if (!actorUserId) {
-      logger.warn(`[${requestId}] Webhook requires a workspace billing account to attribute usage`)
-      return NextResponse.json({ error: 'Workspace billing account required' }, { status: 402 })
-    }
-
-    const usageCheck = await checkServerSideUsageLimits(actorUserId)
-    if (usageCheck.isExceeded) {
-      logger.warn(
-        `[${requestId}] User ${actorUserId} has exceeded usage limits. Skipping webhook execution.`,
-        {
-          currentUsage: usageCheck.currentUsage,
-          limit: usageCheck.limit,
-          workflowId: foundWorkflow.id,
-          provider: foundWebhook.provider,
-        }
-      )
-
-      const executionId = uuidv4()
-      const loggingSession = new LoggingSession(foundWorkflow.id, executionId, 'webhook', requestId)
-
-      await loggingSession.safeStart({
-        userId: actorUserId,
-        workspaceId: foundWorkflow.workspaceId || '',
-        variables: {},
-      })
-
-      await loggingSession.safeCompleteWithError({
-        error: {
-          message:
-            usageCheck.message ||
-            'Usage limit exceeded. Please upgrade your plan to continue using webhooks.',
-          stackTrace: undefined,
-        },
-        traceSpans: [],
-      })
-
-      if (foundWebhook.provider === 'microsoft-teams') {
-        return NextResponse.json(
-          {
-            type: 'message',
-            text: 'Usage limit exceeded. Please upgrade your plan to continue.',
-          },
-          { status: 402 }
-        )
-      }
-
+    if (foundWebhook.provider === 'microsoft-teams') {
       return NextResponse.json(
-        { error: usageCheck.message || 'Usage limit exceeded' },
-        { status: 402 }
+        {
+          type: 'message',
+          text: 'Internal error during preprocessing',
+        },
+        { status: 500 }
       )
     }
 
-    logger.debug(`[${requestId}] Usage limit check passed for webhook`, {
-      provider: foundWebhook.provider,
-      currentUsage: usageCheck.currentUsage,
-      limit: usageCheck.limit,
-    })
-  } catch (usageError) {
-    logger.error(`[${requestId}] Error checking webhook usage limits:`, usageError)
+    return NextResponse.json({ error: 'Internal error during preprocessing' }, { status: 500 })
   }
-
-  return null
 }
 
 export async function queueWebhookExecution(
@@ -670,14 +565,6 @@ export async function queueWebhookExecution(
   options: WebhookProcessorOptions
 ): Promise<NextResponse> {
   try {
-    const actorUserId = await resolveWorkflowActorUserId(foundWorkflow)
-    if (!actorUserId) {
-      logger.warn(
-        `[${options.requestId}] Webhook requires a workspace billing account to attribute usage`
-      )
-      return NextResponse.json({ error: 'Workspace billing account required' }, { status: 402 })
-    }
-
     // GitHub event filtering for event-specific triggers
     if (foundWebhook.provider === 'github') {
       const providerConfig = (foundWebhook.providerConfig as Record<string, any>) || {}
@@ -804,7 +691,7 @@ export async function queueWebhookExecution(
     const payload = {
       webhookId: foundWebhook.id,
       workflowId: foundWorkflow.id,
-      userId: actorUserId,
+      userId: foundWorkflow.userId,
       provider: foundWebhook.provider,
       body,
       headers,

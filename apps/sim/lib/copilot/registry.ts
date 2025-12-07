@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { KnowledgeBaseArgsSchema, KnowledgeBaseResultSchema } from './tools/shared/schemas'
 
 // Tool IDs supported by the Copilot runtime
 export const ToolIds = z.enum([
@@ -13,20 +14,23 @@ export const ToolIds = z.enum([
   'get_operations_examples',
   'search_documentation',
   'search_online',
+  'search_patterns',
+  'search_errors',
+  'remember_debug',
   'make_api_request',
-  'get_environment_variables',
   'set_environment_variables',
-  'get_oauth_credentials',
-  'gdrive_request_access',
-  'list_gdrive_files',
-  'read_gdrive_file',
+  'get_credentials',
   'reason',
   'list_user_workflows',
   'get_workflow_from_name',
-  'get_global_workflow_variables',
+  'get_workflow_data',
   'set_global_workflow_variables',
   'oauth_request_access',
   'get_trigger_blocks',
+  'deploy_workflow',
+  'check_deployment_status',
+  'navigate_ui',
+  'knowledge_base',
 ])
 export type ToolId = z.infer<typeof ToolIds>
 
@@ -53,8 +57,10 @@ export const ToolArgSchemas = {
   // New tools
   list_user_workflows: z.object({}),
   get_workflow_from_name: z.object({ workflow_name: z.string() }),
-  // New variable tools
-  get_global_workflow_variables: z.object({}),
+  // Workflow data tool (variables, custom tools, MCP tools, files)
+  get_workflow_data: z.object({
+    data_type: z.enum(['global_variables', 'custom_tools', 'mcp_tools', 'files']),
+  }),
   set_global_workflow_variables: z.object({
     operations: z.array(
       z.object({
@@ -66,7 +72,23 @@ export const ToolArgSchemas = {
     ),
   }),
   // New
-  oauth_request_access: z.object({}),
+  oauth_request_access: z.object({
+    providerName: z.string(),
+  }),
+
+  deploy_workflow: z.object({
+    action: z.enum(['deploy', 'undeploy']).optional().default('deploy'),
+    deployType: z.enum(['api', 'chat']).optional().default('api'),
+  }),
+
+  check_deployment_status: z.object({
+    workflowId: z.string().optional(),
+  }),
+
+  navigate_ui: z.object({
+    destination: z.enum(['workflow', 'logs', 'templates', 'vector_db', 'settings']),
+    workflowName: z.string().optional(),
+  }),
 
   edit_workflow: z.object({
     operations: z
@@ -128,6 +150,24 @@ export const ToolArgSchemas = {
     hl: z.string().optional(),
   }),
 
+  search_patterns: z.object({
+    queries: z.array(z.string()).min(1).max(3),
+    limit: z.number().optional().default(3),
+  }),
+
+  search_errors: z.object({
+    query: z.string(),
+    limit: z.number().optional().default(5),
+  }),
+
+  remember_debug: z.object({
+    operation: z.enum(['add', 'edit', 'delete']),
+    id: z.string().optional(),
+    problem: z.string().optional(),
+    solution: z.string().optional(),
+    description: z.string().optional(),
+  }),
+
   make_api_request: z.object({
     url: z.string(),
     method: z.enum(['GET', 'POST', 'PUT']),
@@ -136,30 +176,17 @@ export const ToolArgSchemas = {
     body: z.union([z.record(z.any()), z.string()]).optional(),
   }),
 
-  get_environment_variables: z.object({}),
-
   set_environment_variables: z.object({
     variables: z.record(z.string()),
   }),
 
-  get_oauth_credentials: z.object({}),
-
-  gdrive_request_access: z.object({}),
-
-  list_gdrive_files: z.object({
-    search_query: z.string().optional(),
-    num_results: z.number().optional().default(50),
-  }),
-
-  read_gdrive_file: z.object({
-    fileId: z.string(),
-    type: z.enum(['doc', 'sheet']),
-    range: z.string().optional(),
-  }),
+  get_credentials: z.object({}),
 
   reason: z.object({
     reasoning: z.string(),
   }),
+
+  knowledge_base: KnowledgeBaseArgsSchema,
 } as const
 export type ToolArgSchemaMap = typeof ToolArgSchemas
 
@@ -184,11 +211,8 @@ export const ToolSSESchemas = {
     'get_workflow_from_name',
     ToolArgSchemas.get_workflow_from_name
   ),
-  // New variable tools
-  get_global_workflow_variables: toolCallSSEFor(
-    'get_global_workflow_variables',
-    ToolArgSchemas.get_global_workflow_variables
-  ),
+  // Workflow data tool (variables, custom tools, MCP tools, files)
+  get_workflow_data: toolCallSSEFor('get_workflow_data', ToolArgSchemas.get_workflow_data),
   set_global_workflow_variables: toolCallSSEFor(
     'set_global_workflow_variables',
     ToolArgSchemas.set_global_workflow_variables
@@ -208,28 +232,25 @@ export const ToolSSESchemas = {
   ),
   search_documentation: toolCallSSEFor('search_documentation', ToolArgSchemas.search_documentation),
   search_online: toolCallSSEFor('search_online', ToolArgSchemas.search_online),
+  search_patterns: toolCallSSEFor('search_patterns', ToolArgSchemas.search_patterns),
+  search_errors: toolCallSSEFor('search_errors', ToolArgSchemas.search_errors),
+  remember_debug: toolCallSSEFor('remember_debug', ToolArgSchemas.remember_debug),
   make_api_request: toolCallSSEFor('make_api_request', ToolArgSchemas.make_api_request),
-  get_environment_variables: toolCallSSEFor(
-    'get_environment_variables',
-    ToolArgSchemas.get_environment_variables
-  ),
   set_environment_variables: toolCallSSEFor(
     'set_environment_variables',
     ToolArgSchemas.set_environment_variables
   ),
-  get_oauth_credentials: toolCallSSEFor(
-    'get_oauth_credentials',
-    ToolArgSchemas.get_oauth_credentials
-  ),
-  gdrive_request_access: toolCallSSEFor(
-    'gdrive_request_access',
-    ToolArgSchemas.gdrive_request_access as any
-  ),
-  list_gdrive_files: toolCallSSEFor('list_gdrive_files', ToolArgSchemas.list_gdrive_files),
-  read_gdrive_file: toolCallSSEFor('read_gdrive_file', ToolArgSchemas.read_gdrive_file),
+  get_credentials: toolCallSSEFor('get_credentials', ToolArgSchemas.get_credentials),
   reason: toolCallSSEFor('reason', ToolArgSchemas.reason),
   // New
   oauth_request_access: toolCallSSEFor('oauth_request_access', ToolArgSchemas.oauth_request_access),
+  deploy_workflow: toolCallSSEFor('deploy_workflow', ToolArgSchemas.deploy_workflow),
+  check_deployment_status: toolCallSSEFor(
+    'check_deployment_status',
+    ToolArgSchemas.check_deployment_status
+  ),
+  navigate_ui: toolCallSSEFor('navigate_ui', ToolArgSchemas.navigate_ui),
+  knowledge_base: toolCallSSEFor('knowledge_base', ToolArgSchemas.knowledge_base),
 } as const
 export type ToolSSESchemaMap = typeof ToolSSESchemas
 
@@ -277,10 +298,47 @@ export const ToolResultSchemas = {
     .object({ yamlContent: z.string() })
     .or(z.object({ userWorkflow: z.string() }))
     .or(z.string()),
-  // New variable tools
-  get_global_workflow_variables: z
-    .object({ variables: z.record(z.any()) })
-    .or(z.array(z.object({ name: z.string(), value: z.any() }))),
+  // Workflow data tool results (variables, custom tools, MCP tools, files)
+  get_workflow_data: z.union([
+    z.object({
+      variables: z.array(z.object({ id: z.string(), name: z.string(), value: z.any() })),
+    }),
+    z.object({
+      customTools: z.array(
+        z.object({
+          id: z.string(),
+          title: z.string(),
+          functionName: z.string(),
+          description: z.string(),
+          parameters: z.any().optional(),
+        })
+      ),
+    }),
+    z.object({
+      mcpTools: z.array(
+        z.object({
+          name: z.string(),
+          serverId: z.string(),
+          serverName: z.string(),
+          description: z.string(),
+          inputSchema: z.any().optional(),
+        })
+      ),
+    }),
+    z.object({
+      files: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          key: z.string(),
+          path: z.string(),
+          size: z.number(),
+          type: z.string(),
+          uploadedAt: z.string(),
+        })
+      ),
+    }),
+  ]),
   set_global_workflow_variables: z
     .object({ variables: z.record(z.any()) })
     .or(z.object({ message: z.any().optional(), data: z.any().optional() })),
@@ -339,37 +397,80 @@ export const ToolResultSchemas = {
   }),
   search_documentation: z.object({ results: z.array(z.any()) }),
   search_online: z.object({ results: z.array(z.any()) }),
+  search_patterns: z.object({
+    patterns: z.array(
+      z.object({
+        blocks_involved: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        pattern_category: z.string().optional(),
+        pattern_name: z.string().optional(),
+        use_cases: z.array(z.string()).optional(),
+        workflow_json: z.any().optional(),
+      })
+    ),
+  }),
+  search_errors: z.object({
+    results: z.array(
+      z.object({
+        problem: z.string().optional(),
+        solution: z.string().optional(),
+        context: z.string().optional(),
+        similarity: z.number().optional(),
+      })
+    ),
+  }),
+  remember_debug: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    id: z.string().optional(),
+  }),
   make_api_request: z.object({
     status: z.number(),
     statusText: z.string().optional(),
     headers: z.record(z.string()).optional(),
     body: z.any().optional(),
   }),
-  get_environment_variables: z.object({ variables: z.record(z.string()) }),
   set_environment_variables: z
     .object({ variables: z.record(z.string()) })
     .or(z.object({ message: z.any().optional(), data: z.any().optional() })),
-  get_oauth_credentials: z.object({
-    credentials: z.array(
-      z.object({ id: z.string(), provider: z.string(), isDefault: z.boolean().optional() })
-    ),
+  get_credentials: z.object({
+    oauth: z.object({
+      credentials: z.array(
+        z.object({ id: z.string(), provider: z.string(), isDefault: z.boolean().optional() })
+      ),
+      total: z.number(),
+    }),
+    environment: z.object({
+      variableNames: z.array(z.string()),
+      count: z.number(),
+    }),
   }),
-  gdrive_request_access: z.object({
-    granted: z.boolean().optional(),
-    message: z.string().optional(),
-  }),
-  list_gdrive_files: z.object({
-    files: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string().optional(),
-        mimeType: z.string().optional(),
-        size: z.number().optional(),
-      })
-    ),
-  }),
-  read_gdrive_file: z.object({ content: z.string().optional(), data: z.any().optional() }),
   reason: z.object({ reasoning: z.string() }),
+  deploy_workflow: z.object({
+    action: z.enum(['deploy', 'undeploy']).optional(),
+    deployType: z.enum(['api', 'chat']).optional(),
+    isDeployed: z.boolean().optional(),
+    deployedAt: z.string().optional(),
+    needsApiKey: z.boolean().optional(),
+    message: z.string().optional(),
+    endpoint: z.string().optional(),
+    curlCommand: z.string().optional(),
+    apiKeyPlaceholder: z.string().optional(),
+    openedModal: z.boolean().optional(),
+  }),
+  check_deployment_status: z.object({
+    isDeployed: z.boolean(),
+    deploymentTypes: z.array(z.string()),
+    apiDeployed: z.boolean(),
+    chatDeployed: z.boolean(),
+    deployedAt: z.string().nullable(),
+  }),
+  navigate_ui: z.object({
+    destination: z.enum(['workflow', 'logs', 'templates', 'vector_db', 'settings']),
+    workflowName: z.string().optional(),
+    navigated: z.boolean(),
+  }),
+  knowledge_base: KnowledgeBaseResultSchema,
 } as const
 export type ToolResultSchemaMap = typeof ToolResultSchemas
 

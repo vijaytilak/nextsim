@@ -52,7 +52,7 @@
 import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Check, ChevronLeft, ChevronRight, Search } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/core/utils/cn'
 
 /**
  * Shared base styles for all popover interactive items.
@@ -241,6 +241,11 @@ export interface PopoverContentProps
    * @default 8
    */
   collisionPadding?: number
+  /**
+   * When true, adds a border to the popover content
+   * @default false
+   */
+  border?: boolean
 }
 
 /**
@@ -272,6 +277,7 @@ const PopoverContent = React.forwardRef<
       align = 'start',
       sideOffset,
       collisionPadding = 8,
+      border = false,
       ...restProps
     },
     ref
@@ -330,6 +336,7 @@ const PopoverContent = React.forwardRef<
           // If width is constrained by the caller (prop or style), ensure inner flexible text truncates by default,
           // and also truncate section headers.
           hasUserWidthConstraint && '[&_.flex-1]:truncate [&_[data-popover-section]]:truncate',
+          border && 'border border-[var(--surface-11)]',
           className
         )}
         style={{

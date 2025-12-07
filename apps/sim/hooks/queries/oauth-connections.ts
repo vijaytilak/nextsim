@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { client } from '@/lib/auth-client'
+import { client } from '@/lib/auth/auth-client'
 import { createLogger } from '@/lib/logs/console/logger'
 import { OAUTH_PROVIDERS, type OAuthServiceConfig } from '@/lib/oauth/oauth'
 
@@ -132,6 +132,13 @@ export function useConnectOAuthService() {
     mutationFn: async ({ providerId, callbackURL }: ConnectServiceParams) => {
       if (providerId === 'trello') {
         window.location.href = '/api/auth/trello/authorize'
+        return { success: true }
+      }
+
+      // Shopify requires a custom OAuth flow with shop domain input
+      if (providerId === 'shopify') {
+        const returnUrl = encodeURIComponent(callbackURL)
+        window.location.href = `/api/auth/shopify/authorize?returnUrl=${returnUrl}`
         return { success: true }
       }
 

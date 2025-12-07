@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 import clsx from 'clsx'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
 import { ContextMenu } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workflow-list/components/context-menu/context-menu'
 import { DeleteModal } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workflow-list/components/delete-modal/delete-modal'
 import { Avatars } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workflow-list/components/workflow-item/avatars/avatars'
@@ -40,6 +41,7 @@ export function WorkflowItem({ workflow, active, level, onWorkflowClick }: Workf
   const workspaceId = params.workspaceId as string
   const { selectedWorkflows } = useFolderStore()
   const { updateWorkflow, workflows } = useWorkflowRegistry()
+  const userPermissions = useUserPermissionsContext()
   const isSelected = selectedWorkflows.has(workflow.id)
 
   // Delete modal state
@@ -234,12 +236,8 @@ export function WorkflowItem({ workflow, active, level, onWorkflowClick }: Workf
         data-item-id={workflow.id}
         className={clsx(
           'group flex h-[25px] items-center gap-[8px] rounded-[8px] px-[5.5px] text-[14px]',
-          active
-            ? 'bg-[var(--border)] dark:bg-[var(--border)]'
-            : 'hover:bg-[var(--border)] dark:hover:bg-[var(--border)]',
-          isSelected && selectedWorkflows.size > 1 && !active
-            ? 'bg-[var(--border)] dark:bg-[var(--border)]'
-            : '',
+          active ? 'bg-[var(--surface-9)]' : 'hover:bg-[var(--surface-9)]',
+          isSelected && selectedWorkflows.size > 1 && !active ? 'bg-[var(--surface-9)]' : '',
           isDragging ? 'opacity-50' : ''
         )}
         draggable={!isEditing}
@@ -263,7 +261,7 @@ export function WorkflowItem({ workflow, active, level, onWorkflowClick }: Workf
               className={clsx(
                 'w-full border-0 bg-transparent p-0 font-medium text-[14px] outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
                 active
-                  ? 'text-[var(--text-primary)] dark:text-[var(--text-primary)]'
+                  ? 'text-[var(--text-primary)]'
                   : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)]'
               )}
               maxLength={100}
@@ -282,8 +280,8 @@ export function WorkflowItem({ workflow, active, level, onWorkflowClick }: Workf
               className={clsx(
                 'truncate font-medium',
                 active
-                  ? 'text-[var(--text-primary)] dark:text-[var(--text-primary)]'
-                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] dark:text-[var(--text-tertiary)] dark:group-hover:text-[var(--text-primary)]'
+                  ? 'text-[var(--text-primary)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)]'
               )}
               onDoubleClick={handleDoubleClick}
             >
@@ -309,6 +307,10 @@ export function WorkflowItem({ workflow, active, level, onWorkflowClick }: Workf
         showRename={selectedWorkflows.size <= 1}
         showDuplicate={true}
         showExport={true}
+        disableRename={!userPermissions.canEdit}
+        disableDuplicate={!userPermissions.canEdit}
+        disableExport={!userPermissions.canEdit}
+        disableDelete={!userPermissions.canEdit}
       />
 
       {/* Delete Confirmation Modal */}

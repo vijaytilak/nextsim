@@ -2,7 +2,7 @@ import { db } from '@sim/db'
 import { workflow } from '@sim/db/schema'
 import { eq } from 'drizzle-orm'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getUserEntityPermissions } from '@/lib/permissions/utils'
+import { getUserEntityPermissions } from '@/lib/workspaces/permissions/utils'
 
 const logger = createLogger('SocketPermissions')
 
@@ -21,6 +21,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'update-trigger-mode',
     'toggle-handles',
     'duplicate',
+    'replace-state',
   ],
   write: [
     'add',
@@ -35,6 +36,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'update-trigger-mode',
     'toggle-handles',
     'duplicate',
+    'replace-state',
   ],
   read: ['update-position'],
 }

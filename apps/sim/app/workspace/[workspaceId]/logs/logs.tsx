@@ -1,16 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ArrowUpRight, Info, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { cn } from '@/lib/core/utils/cn'
+import { getIntegrationMetadata } from '@/lib/logs/get-trigger-options'
 import { parseQuery, queryToApiParams } from '@/lib/logs/query-parser'
-import { cn } from '@/lib/utils'
 import Controls from '@/app/workspace/[workspaceId]/logs/components/dashboard/controls'
+import { NotificationSettings } from '@/app/workspace/[workspaceId]/logs/components/notification-settings/notification-settings'
 import { AutocompleteSearch } from '@/app/workspace/[workspaceId]/logs/components/search/search'
 import { Sidebar } from '@/app/workspace/[workspaceId]/logs/components/sidebar/sidebar'
 import Dashboard from '@/app/workspace/[workspaceId]/logs/dashboard'
 import { formatDate } from '@/app/workspace/[workspaceId]/logs/utils'
+import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
 import { useFolders } from '@/hooks/queries/folders'
 import { useLogDetail, useLogsList } from '@/hooks/queries/logs'
 import { useDebounce } from '@/hooks/use-debounce'
@@ -19,31 +22,6 @@ import { useFilterStore } from '@/stores/logs/filters/store'
 import type { WorkflowLog } from '@/stores/logs/filters/types'
 
 const LOGS_PER_PAGE = 50
-
-/**
- * Returns the background color for a trigger type badge.
- *
- * @param trigger - The trigger type (manual, schedule, webhook, chat, api)
- * @returns Hex color code for the trigger type
- */
-const getTriggerColor = (trigger: string | null | undefined): string => {
-  if (!trigger) return '#9ca3af'
-
-  switch (trigger.toLowerCase()) {
-    case 'manual':
-      return '#9ca3af' // gray-400 (matches secondary styling better)
-    case 'schedule':
-      return '#10b981' // green (emerald-500)
-    case 'webhook':
-      return '#f97316' // orange (orange-500)
-    case 'chat':
-      return '#8b5cf6' // purple (violet-500)
-    case 'api':
-      return '#3b82f6' // blue (blue-500)
-    default:
-      return '#9ca3af' // gray-400
-  }
-}
 
 const selectedRowAnimation = `
   @keyframes borderPulse {
@@ -57,6 +35,20 @@ const selectedRowAnimation = `
   }
 `
 
+const TriggerBadge = React.memo(({ trigger }: { trigger: string }) => {
+  const metadata = getIntegrationMetadata(trigger)
+  return (
+    <div
+      className='inline-flex items-center rounded-[6px] px-[8px] py-[2px] font-medium text-[12px] text-white'
+      style={{ backgroundColor: metadata.color }}
+    >
+      {metadata.label}
+    </div>
+  )
+})
+
+TriggerBadge.displayName = 'TriggerBadge'
+
 export default function Logs() {
   const params = useParams()
   const workspaceId = params.workspaceId as string
@@ -68,7 +60,6 @@ export default function Logs() {
     level,
     workflowIds,
     folderIds,
-    searchQuery: storeSearchQuery,
     setSearchQuery: setStoreSearchQuery,
     triggers,
     viewMode,
@@ -87,14 +78,24 @@ export default function Logs() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialized = useRef<boolean>(false)
 
-  const [searchQuery, setSearchQuery] = useState(storeSearchQuery)
+  const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
+
+  // Sync search query from URL on mount (client-side only)
+  useEffect(() => {
+    const urlSearch = new URLSearchParams(window.location.search).get('search') || ''
+    if (urlSearch && urlSearch !== searchQuery) {
+      setSearchQuery(urlSearch)
+    }
+  }, [])
 
   const [, setAvailableWorkflows] = useState<string[]>([])
   const [, setAvailableFolders] = useState<string[]>([])
 
   const [isLive, setIsLive] = useState(false)
   const isSearchOpenRef = useRef<boolean>(false)
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false)
+  const userPermissions = useUserPermissionsContext()
 
   const logFilters = useMemo(
     () => ({
@@ -120,10 +121,6 @@ export default function Logs() {
     if (!logsQuery.data?.pages) return []
     return logsQuery.data.pages.flatMap((page) => page.logs)
   }, [logsQuery.data?.pages])
-
-  useEffect(() => {
-    setSearchQuery(storeSearchQuery)
-  }, [storeSearchQuery])
 
   const foldersQuery = useFolders(workspaceId)
   const { getFolderTree } = useFolderStore()
@@ -176,10 +173,10 @@ export default function Logs() {
   }, [workspaceId, getFolderTree, foldersQuery.data])
 
   useEffect(() => {
-    if (isInitialized.current && debouncedSearchQuery !== storeSearchQuery) {
+    if (isInitialized.current) {
       setStoreSearchQuery(debouncedSearchQuery)
     }
-  }, [debouncedSearchQuery, storeSearchQuery])
+  }, [debouncedSearchQuery, setStoreSearchQuery])
 
   const handleLogClick = (log: WorkflowLog) => {
     setSelectedLog(log)
@@ -259,6 +256,8 @@ export default function Logs() {
   useEffect(() => {
     const handlePopState = () => {
       initializeFromURL()
+      const params = new URLSearchParams(window.location.search)
+      setSearchQuery(params.get('search') || '')
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -391,6 +390,8 @@ export default function Logs() {
             }
             showExport={true}
             onExport={handleExport}
+            canConfigureNotifications={userPermissions.canEdit}
+            onConfigureNotifications={() => setIsNotificationSettingsOpen(true)}
           />
 
           {/* Table container */}
@@ -493,12 +494,12 @@ export default function Logs() {
                                 <div
                                   className='h-[6px] w-[6px] rounded-[2px]'
                                   style={{
-                                    backgroundColor: isError ? '#EF4444' : '#B7B7B7',
+                                    backgroundColor: isError ? 'var(--text-error)' : '#B7B7B7',
                                   }}
                                 />
                                 <span
                                   className='font-medium text-[11.5px]'
-                                  style={{ color: isError ? '#EF4444' : '#B7B7B7' }}
+                                  style={{ color: isError ? 'var(--text-error)' : '#B7B7B7' }}
                                 >
                                   {statusLabel}
                                 </span>
@@ -537,12 +538,7 @@ export default function Logs() {
                           {/* Trigger */}
                           <div className='hidden xl:block'>
                             {log.trigger ? (
-                              <div
-                                className='inline-flex items-center rounded-[6px] px-[8px] py-[2px] font-medium text-[12px] text-white'
-                                style={{ backgroundColor: getTriggerColor(log.trigger) }}
-                              >
-                                {log.trigger}
-                              </div>
+                              <TriggerBadge trigger={log.trigger} />
                             ) : (
                               <div className='font-medium text-[12px] text-[var(--text-secondary)] dark:text-[var(--text-secondary)]'>
                                 —
@@ -613,6 +609,12 @@ export default function Logs() {
         onNavigatePrev={handleNavigatePrev}
         hasNext={selectedLogIndex < logs.length - 1}
         hasPrev={selectedLogIndex > 0}
+      />
+
+      <NotificationSettings
+        workspaceId={workspaceId}
+        open={isNotificationSettingsOpen}
+        onOpenChange={setIsNotificationSettingsOpen}
       />
     </div>
   )

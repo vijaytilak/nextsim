@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Plus, Search } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button, FolderPlus, Tooltip } from '@/components/emcn'
-import { useSession } from '@/lib/auth-client'
-import { getEnv, isTruthy } from '@/lib/env'
+import { useSession } from '@/lib/auth/auth-client'
+import { getEnv, isTruthy } from '@/lib/core/config/env'
 import { createLogger } from '@/lib/logs/console/logger'
 import { useRegisterGlobalCommands } from '@/app/workspace/[workspaceId]/providers/global-commands-provider'
+import { createCommands } from '@/app/workspace/[workspaceId]/utils/commands-utils'
 import {
   FooterNavigation,
   SearchModal,
@@ -31,7 +32,6 @@ import { useSearchModalStore } from '@/stores/search-modal/store'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
 
 const logger = createLogger('SidebarNew')
-
 // Feature flag: Billing usage indicator visibility (matches legacy sidebar behavior)
 const isBillingEnabled = isTruthy(getEnv('NEXT_PUBLIC_BILLING_ENABLED'))
 
@@ -118,11 +118,7 @@ export function SidebarNew() {
     workflowsLoading,
     isCreatingWorkflow,
     handleCreateWorkflow: createWorkflow,
-  } = useWorkflowOperations({
-    workspaceId,
-    isWorkspaceValid,
-    onWorkspaceInvalid: fetchWorkspaces,
-  })
+  } = useWorkflowOperations({ workspaceId })
 
   // Folder operations hook
   const { isCreatingFolder, handleCreateFolder: createFolder } = useFolderOperations({
@@ -377,90 +373,84 @@ export function SidebarNew() {
   )
 
   /**
-   * Register global commands:
-   * - Mod+Shift+A: Add an Agent block to the canvas
-   * - Mod+Y: Navigate to Templates (attempts to override browser history)
-   * - Mod+L: Navigate to Logs (attempts to override browser location bar)
-   * - Mod+K: Search (placeholder; no-op for now)
+   * Resolve a workspace id from either params or the current URL path.
+   *
+   * This mirrors existing behavior but is wrapped in a helper to keep command
+   * handlers small and focused.
    */
-  useRegisterGlobalCommands(() => [
-    {
-      id: 'add-agent',
-      shortcut: 'Mod+Shift+A',
-      allowInEditable: true,
-      handler: () => {
-        try {
-          const event = new CustomEvent('add-block-from-toolbar', {
-            detail: { type: 'agent', enableTriggerMode: false },
-          })
-          window.dispatchEvent(event)
-          logger.info('Dispatched add-agent command')
-        } catch (err) {
-          logger.error('Failed to dispatch add-agent command', { err })
-        }
-      },
-    },
-    {
-      id: 'goto-templates',
-      shortcut: 'Mod+Y',
-      allowInEditable: true,
-      handler: () => {
-        try {
-          const pathWorkspaceId =
-            workspaceId ||
-            (typeof window !== 'undefined'
-              ? (() => {
-                  const parts = window.location.pathname.split('/')
-                  const idx = parts.indexOf('workspace')
-                  return idx !== -1 ? parts[idx + 1] : undefined
-                })()
-              : undefined)
-          if (pathWorkspaceId) {
-            router.push(`/workspace/${pathWorkspaceId}/templates`)
-            logger.info('Navigated to templates', { workspaceId: pathWorkspaceId })
-          } else {
-            logger.warn('No workspace ID found, cannot navigate to templates')
+  const resolveWorkspaceIdFromPath = useCallback((): string | undefined => {
+    if (workspaceId) return workspaceId
+    if (typeof window === 'undefined') return undefined
+
+    const parts = window.location.pathname.split('/')
+    const idx = parts.indexOf('workspace')
+    if (idx === -1) return undefined
+
+    return parts[idx + 1]
+  }, [workspaceId])
+
+  /**
+   * Register global sidebar commands using the central commands registry.
+   *
+   * Only commands declared in the registry can be registered here. The
+   * registry owns ids and shortcut strings; this component supplies handlers.
+   */
+  useRegisterGlobalCommands(() =>
+    createCommands([
+      {
+        id: 'add-agent',
+        handler: () => {
+          try {
+            const event = new CustomEvent('add-block-from-toolbar', {
+              detail: { type: 'agent', enableTriggerMode: false },
+            })
+            window.dispatchEvent(event)
+            logger.info('Dispatched add-agent command')
+          } catch (err) {
+            logger.error('Failed to dispatch add-agent command', { err })
           }
-        } catch (err) {
-          logger.error('Failed to navigate to templates', { err })
-        }
+        },
       },
-    },
-    {
-      id: 'goto-logs',
-      shortcut: 'Mod+L',
-      allowInEditable: true,
-      handler: () => {
-        try {
-          const pathWorkspaceId =
-            workspaceId ||
-            (typeof window !== 'undefined'
-              ? (() => {
-                  const parts = window.location.pathname.split('/')
-                  const idx = parts.indexOf('workspace')
-                  return idx !== -1 ? parts[idx + 1] : undefined
-                })()
-              : undefined)
-          if (pathWorkspaceId) {
-            router.push(`/workspace/${pathWorkspaceId}/logs`)
-            logger.info('Navigated to logs', { workspaceId: pathWorkspaceId })
-          } else {
-            logger.warn('No workspace ID found, cannot navigate to logs')
+      {
+        id: 'goto-templates',
+        handler: () => {
+          try {
+            const pathWorkspaceId = resolveWorkspaceIdFromPath()
+            if (pathWorkspaceId) {
+              router.push(`/workspace/${pathWorkspaceId}/templates`)
+              logger.info('Navigated to templates', { workspaceId: pathWorkspaceId })
+            } else {
+              logger.warn('No workspace ID found, cannot navigate to templates')
+            }
+          } catch (err) {
+            logger.error('Failed to navigate to templates', { err })
           }
-        } catch (err) {
-          logger.error('Failed to navigate to logs', { err })
-        }
+        },
       },
-    },
-    {
-      id: 'open-search',
-      shortcut: 'Mod+K',
-      allowInEditable: true,
-      handler: () => {
-        openSearchModal()
+      {
+        id: 'goto-logs',
+        handler: () => {
+          try {
+            const pathWorkspaceId = resolveWorkspaceIdFromPath()
+            if (pathWorkspaceId) {
+              router.push(`/workspace/${pathWorkspaceId}/logs`)
+              logger.info('Navigated to logs', { workspaceId: pathWorkspaceId })
+            } else {
+              logger.warn('No workspace ID found, cannot navigate to logs')
+            }
+          } catch (err) {
+            logger.error('Failed to navigate to logs', { err })
+          }
+        },
       },
-    },
-  ])
+      {
+        id: 'open-search',
+        handler: () => {
+          openSearchModal()
+        },
+      },
+    ])
+  )
 
   return (
     <>
@@ -497,7 +487,7 @@ export function SidebarNew() {
             aria-label='Workspace sidebar'
             onClick={handleSidebarClick}
           >
-            <div className='flex h-full flex-col border-r pt-[14px] dark:border-[var(--border)]'>
+            <div className='flex h-full flex-col border-[var(--border)] border-r pt-[14px]'>
               {/* Header */}
               <div className='flex-shrink-0 px-[14px]'>
                 <WorkspaceHeader
@@ -524,18 +514,16 @@ export function SidebarNew() {
 
               {/* Search */}
               <div
-                className='mx-[8px] mt-[12px] flex flex-shrink-0 cursor-pointer items-center justify-between rounded-[8px] bg-[var(--surface-5)] px-[8px] py-[7px]'
+                className='mx-[8px] mt-[12px] flex flex-shrink-0 cursor-pointer items-center justify-between rounded-[8px] border border-[var(--border-strong)] bg-transparent px-[8px] py-[7px] dark:border-0 dark:bg-[var(--surface-5)]'
                 onClick={() => setIsSearchModalOpen(true)}
               >
                 <div className='flex items-center gap-[6px]'>
-                  <Search className='h-[14px] w-[14px] text-[var(--text-subtle)] dark:text-[var(--text-subtle)]' />
-                  <p className='translate-y-[0.25px] font-medium text-[var(--text-secondary)] text-small dark:text-[var(--text-secondary)]'>
+                  <Search className='h-[14px] w-[14px] text-[var(--text-subtle)]' />
+                  <p className='translate-y-[0.25px] font-medium text-[var(--text-secondary)] text-small'>
                     Search
                   </p>
                 </div>
-                <p className='font-medium text-[var(--text-subtle)] text-small dark:text-[var(--text-subtle)]'>
-                  ⌘K
-                </p>
+                <p className='font-medium text-[var(--text-subtle)] text-small'>⌘K</p>
               </div>
 
               {/* Workflows */}
@@ -543,7 +531,7 @@ export function SidebarNew() {
                 {/* Header - Always visible */}
                 <div className='flex flex-shrink-0 flex-col space-y-[4px] px-[14px]'>
                   <div className='flex items-center justify-between'>
-                    <div className='font-medium text-[var(--text-tertiary)] text-small dark:text-[var(--text-tertiary)]'>
+                    <div className='font-medium text-[var(--text-tertiary)] text-small'>
                       Workflows
                     </div>
                     <div className='flex items-center justify-center gap-[10px]'>

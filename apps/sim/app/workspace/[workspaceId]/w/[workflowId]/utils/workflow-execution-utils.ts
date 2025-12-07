@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { ExecutionResult, StreamingExecution } from '@/executor/types'
 import { useTerminalConsoleStore } from '@/stores/terminal'
-import { useWorkflowDiffStore } from '@/stores/workflow-diff/store'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 
 export interface WorkflowExecutionOptions {
@@ -25,33 +24,15 @@ export async function executeWorkflowWithFullLogging(
     throw new Error('No active workflow')
   }
 
-  // Check if there's an active diff workflow to execute
-  const { diffWorkflow, isDiffReady, isShowingDiff } = useWorkflowDiffStore.getState()
-  const hasActiveDiffWorkflow =
-    isDiffReady &&
-    isShowingDiff &&
-    !!diffWorkflow &&
-    Object.keys(diffWorkflow.blocks || {}).length > 0
-
   const executionId = options.executionId || uuidv4()
   const { addConsole } = useTerminalConsoleStore.getState()
 
-  // Build request payload
   const payload: any = {
     input: options.workflowInput,
     stream: true,
     triggerType: options.overrideTriggerType || 'manual',
     useDraftState: true,
-  }
-
-  // Add diff workflow override if active
-  if (hasActiveDiffWorkflow) {
-    payload.workflowStateOverride = {
-      blocks: diffWorkflow.blocks,
-      edges: diffWorkflow.edges,
-      loops: diffWorkflow.loops,
-      parallels: diffWorkflow.parallels,
-    }
+    isClientSession: true,
   }
 
   const response = await fetch(`/api/workflows/${activeWorkflowId}/execute`, {

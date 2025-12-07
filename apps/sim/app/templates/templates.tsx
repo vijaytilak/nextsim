@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/emcn'
 import { Input } from '@/components/ui/input'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { CredentialRequirement } from '@/lib/workflows/credential-extractor'
+import type { CredentialRequirement } from '@/lib/workflows/credentials/credential-extractor'
+import type { CreatorProfileDetails } from '@/app/_types/creator-profile'
 import { TemplateCard, TemplateCardSkeleton } from '@/app/templates/components/template-card'
 import { useDebounce } from '@/hooks/use-debounce'
 import type { WorkflowState } from '@/stores/workflows/workflow/types'
-import type { CreatorProfileDetails } from '@/types/creator-profile'
 
 const logger = createLogger('TemplatesPage')
 
@@ -30,6 +30,7 @@ export interface Template {
     details?: CreatorProfileDetails | null
     referenceType: 'user' | 'organization'
     referenceId: string
+    verified?: boolean
   } | null
   views: number
   stars: number
@@ -203,6 +204,7 @@ export default function Templates({
                   stars={template.stars}
                   state={template.state}
                   isStarred={template.isStarred}
+                  isVerified={template.creator?.verified || false}
                 />
               ))
             )}

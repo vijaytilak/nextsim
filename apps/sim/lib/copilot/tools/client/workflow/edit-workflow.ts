@@ -6,10 +6,13 @@ import {
 } from '@/lib/copilot/tools/client/base-tool'
 import { ExecuteResponseSuccessSchema } from '@/lib/copilot/tools/shared/schemas'
 import { createLogger } from '@/lib/logs/console/logger'
+import { stripWorkflowDiffMarkers } from '@/lib/workflows/diff'
+import { sanitizeForCopilot } from '@/lib/workflows/sanitization/json-sanitizer'
 import { useWorkflowDiffStore } from '@/stores/workflow-diff/store'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 import { mergeSubblockState } from '@/stores/workflows/utils'
 import { useWorkflowStore } from '@/stores/workflows/workflow/store'
+import type { WorkflowState } from '@/stores/workflows/workflow/types'
 
 interface EditWorkflowOperation {
   operation_type: 'add' | 'edit' | 'delete'
@@ -28,9 +31,66 @@ export class EditWorkflowClientTool extends BaseClientTool {
   private lastResult: any | undefined
   private hasExecuted = false
   private hasAppliedDiff = false
+  private workflowId: string | undefined
 
   constructor(toolCallId: string) {
     super(toolCallId, EditWorkflowClientTool.id, EditWorkflowClientTool.metadata)
+  }
+
+  /**
+   * Get sanitized workflow JSON from a workflow state, merge subblocks, and sanitize for copilot
+   * This matches what get_user_workflow returns
+   */
+  private getSanitizedWorkflowJson(workflowState: any): string | undefined {
+    const logger = createLogger('EditWorkflowClientTool')
+
+    if (!this.workflowId) {
+      logger.warn('No workflowId available for getting sanitized workflow JSON')
+      return undefined
+    }
+
+    if (!workflowState) {
+      logger.warn('No workflow state provided')
+      return undefined
+    }
+
+    try {
+      // Normalize required properties
+      if (!workflowState.loops) workflowState.loops = {}
+      if (!workflowState.parallels) workflowState.parallels = {}
+      if (!workflowState.edges) workflowState.edges = []
+      if (!workflowState.blocks) workflowState.blocks = {}
+
+      // Merge latest subblock values so edits are reflected
+      let mergedState = workflowState
+      if (workflowState.blocks) {
+        mergedState = {
+          ...workflowState,
+          blocks: mergeSubblockState(workflowState.blocks, this.workflowId as any),
+        }
+        logger.info('Merged subblock values into workflow state', {
+          workflowId: this.workflowId,
+          blockCount: Object.keys(mergedState.blocks || {}).length,
+        })
+      }
+
+      // Sanitize workflow state for copilot (remove UI-specific data)
+      const sanitizedState = sanitizeForCopilot(mergedState)
+
+      // Convert to JSON string for transport
+      const workflowJson = JSON.stringify(sanitizedState, null, 2)
+      logger.info('Successfully created sanitized workflow JSON', {
+        workflowId: this.workflowId,
+        jsonLength: workflowJson.length,
+      })
+
+      return workflowJson
+    } catch (error) {
+      logger.error('Failed to get sanitized workflow JSON', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    }
   }
 
   static readonly metadata: BaseClientToolMetadata = {
@@ -44,6 +104,31 @@ export class EditWorkflowClientTool extends BaseClientTool {
       [ClientToolCallState.aborted]: { text: 'Aborted editing your workflow', icon: MinusCircle },
       [ClientToolCallState.pending]: { text: 'Editing your workflow', icon: Loader2 },
     },
+    getDynamicText: (params, state) => {
+      const workflowId = params?.workflowId || useWorkflowRegistry.getState().activeWorkflowId
+      if (workflowId) {
+        const workflowName = useWorkflowRegistry.getState().workflows[workflowId]?.name
+        if (workflowName) {
+          switch (state) {
+            case ClientToolCallState.success:
+              return `Edited ${workflowName}`
+            case ClientToolCallState.executing:
+            case ClientToolCallState.generating:
+            case ClientToolCallState.pending:
+              return `Editing ${workflowName}`
+            case ClientToolCallState.error:
+              return `Failed to edit ${workflowName}`
+            case ClientToolCallState.review:
+              return `Review changes to ${workflowName}`
+            case ClientToolCallState.rejected:
+              return `Rejected changes to ${workflowName}`
+            case ClientToolCallState.aborted:
+              return `Aborted editing ${workflowName}`
+          }
+        }
+      }
+      return undefined
+    },
   }
 
   async handleAccept(): Promise<void> {
@@ -54,7 +139,52 @@ export class EditWorkflowClientTool extends BaseClientTool {
       hasResult: this.lastResult !== undefined,
     })
     this.setState(ClientToolCallState.success)
-    await this.markToolComplete(200, 'Workflow edits accepted', this.lastResult)
+
+    // Read from the workflow store to get the actual state with diff applied
+    const workflowStore = useWorkflowStore.getState()
+    const currentState = workflowStore.getWorkflowState()
+
+    // Get the workflow state that was applied, merge subblocks, and sanitize
+    // This matches what get_user_workflow would return
+    const workflowJson = this.getSanitizedWorkflowJson(currentState)
+
+    // Build sanitized data including workflow JSON and any skipped/validation info from the result
+    const sanitizedData: Record<string, any> = {}
+    if (workflowJson) {
+      sanitizedData.userWorkflow = workflowJson
+    }
+
+    // Include skipped items and validation errors in the accept response for LLM feedback
+    if (this.lastResult?.skippedItems?.length > 0) {
+      sanitizedData.skippedItems = this.lastResult.skippedItems
+      sanitizedData.skippedItemsMessage = this.lastResult.skippedItemsMessage
+    }
+    if (this.lastResult?.inputValidationErrors?.length > 0) {
+      sanitizedData.inputValidationErrors = this.lastResult.inputValidationErrors
+      sanitizedData.inputValidationMessage = this.lastResult.inputValidationMessage
+    }
+
+    // Build a message that includes info about skipped items
+    let acceptMessage = 'Workflow edits accepted'
+    if (
+      this.lastResult?.skippedItems?.length > 0 ||
+      this.lastResult?.inputValidationErrors?.length > 0
+    ) {
+      const parts: string[] = []
+      if (this.lastResult?.skippedItems?.length > 0) {
+        parts.push(`${this.lastResult.skippedItems.length} operation(s) were skipped`)
+      }
+      if (this.lastResult?.inputValidationErrors?.length > 0) {
+        parts.push(`${this.lastResult.inputValidationErrors.length} input(s) were rejected`)
+      }
+      acceptMessage = `Workflow edits accepted. Note: ${parts.join(', ')}.`
+    }
+
+    await this.markToolComplete(
+      200,
+      acceptMessage,
+      Object.keys(sanitizedData).length > 0 ? sanitizedData : undefined
+    )
     this.setState(ClientToolCallState.success)
   }
 
@@ -88,6 +218,9 @@ export class EditWorkflowClientTool extends BaseClientTool {
         return
       }
 
+      // Store workflowId for later use
+      this.workflowId = workflowId
+
       // Validate operations
       const operations = args?.operations || []
       if (!operations.length) {
@@ -98,54 +231,24 @@ export class EditWorkflowClientTool extends BaseClientTool {
 
       // Prepare currentUserWorkflow JSON from stores to preserve block IDs
       let currentUserWorkflow = args?.currentUserWorkflow
-      const diffStoreState = useWorkflowDiffStore.getState()
-      let usedDiffWorkflow = false
 
-      if (!currentUserWorkflow && diffStoreState.isDiffReady && diffStoreState.diffWorkflow) {
-        try {
-          const diffWorkflow = diffStoreState.diffWorkflow
-          const normalizedDiffWorkflow = {
-            ...diffWorkflow,
-            blocks: diffWorkflow.blocks || {},
-            edges: diffWorkflow.edges || [],
-            loops: diffWorkflow.loops || {},
-            parallels: diffWorkflow.parallels || {},
-          }
-          currentUserWorkflow = JSON.stringify(normalizedDiffWorkflow)
-          usedDiffWorkflow = true
-          logger.info('Using diff workflow state as base for edit_workflow operations', {
-            toolCallId: this.toolCallId,
-            blocksCount: Object.keys(normalizedDiffWorkflow.blocks).length,
-            edgesCount: normalizedDiffWorkflow.edges.length,
-          })
-        } catch (e) {
-          logger.warn(
-            'Failed to serialize diff workflow state; falling back to active workflow',
-            e as any
-          )
-        }
-      }
-
-      if (!currentUserWorkflow && !usedDiffWorkflow) {
+      if (!currentUserWorkflow) {
         try {
           const workflowStore = useWorkflowStore.getState()
           const fullState = workflowStore.getWorkflowState()
-          let merged = fullState
-          if (merged?.blocks) {
-            merged = { ...merged, blocks: mergeSubblockState(merged.blocks, workflowId as any) }
-          }
-          if (merged) {
-            if (!merged.loops) merged.loops = {}
-            if (!merged.parallels) merged.parallels = {}
-            if (!merged.edges) merged.edges = []
-            if (!merged.blocks) merged.blocks = {}
-            currentUserWorkflow = JSON.stringify(merged)
-          }
-        } catch (e) {
-          logger.warn(
-            'Failed to build currentUserWorkflow from stores; proceeding without it',
-            e as any
-          )
+          const mergedBlocks = mergeSubblockState(fullState.blocks, workflowId as any)
+          const payloadState = stripWorkflowDiffMarkers({
+            ...fullState,
+            blocks: mergedBlocks,
+            edges: fullState.edges || [],
+            loops: fullState.loops || {},
+            parallels: fullState.parallels || {},
+          })
+          currentUserWorkflow = JSON.stringify(payloadState)
+        } catch (error) {
+          logger.warn('Failed to build currentUserWorkflow from stores; proceeding without it', {
+            error,
+          })
         }
       }
 
@@ -180,18 +283,46 @@ export class EditWorkflowClientTool extends BaseClientTool {
         blocksCount: result?.workflowState
           ? Object.keys(result.workflowState.blocks || {}).length
           : 0,
+        hasSkippedItems: !!result?.skippedItems,
+        skippedItemsCount: result?.skippedItems?.length || 0,
+        hasInputValidationErrors: !!result?.inputValidationErrors,
+        inputValidationErrorsCount: result?.inputValidationErrors?.length || 0,
       })
 
+      // Log skipped items and validation errors for visibility
+      if (result?.skippedItems?.length > 0) {
+        logger.warn('Some operations were skipped during edit_workflow', {
+          skippedItems: result.skippedItems,
+        })
+      }
+      if (result?.inputValidationErrors?.length > 0) {
+        logger.warn('Some inputs were rejected during edit_workflow', {
+          inputValidationErrors: result.inputValidationErrors,
+        })
+      }
+
       // Update diff directly with workflow state - no YAML conversion needed!
+      // The diff engine may transform the workflow state (e.g., assign new IDs), so we must use
+      // the returned proposedState rather than the original result.workflowState
+      let actualDiffWorkflow: WorkflowState | null = null
+
       if (result.workflowState) {
         try {
           if (!this.hasAppliedDiff) {
             const diffStore = useWorkflowDiffStore.getState()
+            // setProposedChanges applies the state directly to the workflow store
             await diffStore.setProposedChanges(result.workflowState)
             logger.info('diff proposed changes set for edit_workflow with direct workflow state')
             this.hasAppliedDiff = true
+
+            // Read back the applied state from the workflow store
+            const workflowStore = useWorkflowStore.getState()
+            actualDiffWorkflow = workflowStore.getWorkflowState()
           } else {
             logger.info('skipping diff apply (already applied)')
+            // If we already applied, read from workflow store
+            const workflowStore = useWorkflowStore.getState()
+            actualDiffWorkflow = workflowStore.getWorkflowState()
           }
         } catch (e) {
           logger.warn('Failed to set proposed changes in diff store', e as any)
@@ -201,8 +332,49 @@ export class EditWorkflowClientTool extends BaseClientTool {
         throw new Error('No workflow state returned from server')
       }
 
+      if (!actualDiffWorkflow) {
+        throw new Error('Failed to retrieve workflow from diff store after setting changes')
+      }
+
+      // Get the workflow state that was just applied, merge subblocks, and sanitize
+      // This matches what get_user_workflow would return (the true state after edits were applied)
+      const workflowJson = this.getSanitizedWorkflowJson(actualDiffWorkflow)
+
+      // Build sanitized data including workflow JSON and any skipped/validation info
+      const sanitizedData: Record<string, any> = {}
+      if (workflowJson) {
+        sanitizedData.userWorkflow = workflowJson
+      }
+
+      // Include skipped items and validation errors in the response for LLM feedback
+      if (result?.skippedItems?.length > 0) {
+        sanitizedData.skippedItems = result.skippedItems
+        sanitizedData.skippedItemsMessage = result.skippedItemsMessage
+      }
+      if (result?.inputValidationErrors?.length > 0) {
+        sanitizedData.inputValidationErrors = result.inputValidationErrors
+        sanitizedData.inputValidationMessage = result.inputValidationMessage
+      }
+
+      // Build a message that includes info about skipped items
+      let completeMessage = 'Workflow diff ready for review'
+      if (result?.skippedItems?.length > 0 || result?.inputValidationErrors?.length > 0) {
+        const parts: string[] = []
+        if (result?.skippedItems?.length > 0) {
+          parts.push(`${result.skippedItems.length} operation(s) skipped`)
+        }
+        if (result?.inputValidationErrors?.length > 0) {
+          parts.push(`${result.inputValidationErrors.length} input(s) rejected`)
+        }
+        completeMessage = `Workflow diff ready for review. Note: ${parts.join(', ')}.`
+      }
+
       // Mark complete early to unblock LLM stream
-      await this.markToolComplete(200, 'Workflow diff ready for review', result)
+      await this.markToolComplete(
+        200,
+        completeMessage,
+        Object.keys(sanitizedData).length > 0 ? sanitizedData : undefined
+      )
 
       // Move into review state
       this.setState(ClientToolCallState.review, { result })

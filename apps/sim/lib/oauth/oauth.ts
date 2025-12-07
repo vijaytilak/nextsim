@@ -3,7 +3,8 @@ import {
   AirtableIcon,
   AsanaIcon,
   ConfluenceIcon,
-  DiscordIcon,
+  // DiscordIcon,
+  DropboxIcon,
   GithubIcon,
   GmailIcon,
   GoogleCalendarIcon,
@@ -15,6 +16,7 @@ import {
   HubspotIcon,
   JiraIcon,
   LinearIcon,
+  LinkedInIcon,
   MicrosoftExcelIcon,
   MicrosoftIcon,
   MicrosoftOneDriveIcon,
@@ -26,14 +28,17 @@ import {
   PipedriveIcon,
   RedditIcon,
   SalesforceIcon,
+  ShopifyIcon,
   SlackIcon,
-  SupabaseIcon,
+  // SupabaseIcon,
   TrelloIcon,
   WealthboxIcon,
   WebflowIcon,
+  WordpressIcon,
   xIcon,
+  ZoomIcon,
 } from '@/components/icons'
-import { env } from '@/lib/env'
+import { env } from '@/lib/core/config/env'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('OAuth')
@@ -42,12 +47,13 @@ export type OAuthProvider =
   | 'google'
   | 'github'
   | 'x'
-  | 'supabase'
+  // | 'supabase'
   | 'confluence'
   | 'airtable'
   | 'notion'
   | 'jira'
-  | 'discord'
+  // | 'discord'
+  | 'dropbox'
   | 'microsoft'
   | 'linear'
   | 'slack'
@@ -59,6 +65,10 @@ export type OAuthProvider =
   | 'pipedrive'
   | 'hubspot'
   | 'salesforce'
+  | 'linkedin'
+  | 'shopify'
+  | 'zoom'
+  | 'wordpress'
   | string
 
 export type OAuthService =
@@ -72,12 +82,13 @@ export type OAuthService =
   | 'google-forms'
   | 'github'
   | 'x'
-  | 'supabase'
+  // | 'supabase'
   | 'confluence'
   | 'airtable'
   | 'notion'
   | 'jira'
-  | 'discord'
+  // | 'discord'
+  | 'dropbox'
   | 'microsoft-excel'
   | 'microsoft-teams'
   | 'microsoft-planner'
@@ -94,6 +105,10 @@ export type OAuthService =
   | 'pipedrive'
   | 'hubspot'
   | 'salesforce'
+  | 'linkedin'
+  | 'shopify'
+  | 'zoom'
+  | 'wordpress'
 export interface OAuthProviderConfig {
   id: OAuthProvider
   name: string
@@ -141,8 +156,8 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
         icon: (props) => GoogleDriveIcon(props),
         baseProviderIcon: (props) => GoogleIcon(props),
         scopes: [
-          'https://www.googleapis.com/auth/drive.readonly',
           'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive',
         ],
         scopeHints: ['drive'],
       },
@@ -154,8 +169,8 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
         icon: (props) => GoogleDocsIcon(props),
         baseProviderIcon: (props) => GoogleIcon(props),
         scopes: [
-          'https://www.googleapis.com/auth/drive.readonly',
           'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive',
         ],
         scopeHints: ['docs'],
       },
@@ -167,8 +182,8 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
         icon: (props) => GoogleSheetsIcon(props),
         baseProviderIcon: (props) => GoogleIcon(props),
         scopes: [
-          'https://www.googleapis.com/auth/drive.readonly',
           'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive',
         ],
         scopeHints: ['sheets'],
       },
@@ -354,23 +369,23 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
     },
     defaultService: 'x',
   },
-  supabase: {
-    id: 'supabase',
-    name: 'Supabase',
-    icon: (props) => SupabaseIcon(props),
-    services: {
-      supabase: {
-        id: 'supabase',
-        name: 'Supabase',
-        description: 'Connect to your Supabase projects and manage data.',
-        providerId: 'supabase',
-        icon: (props) => SupabaseIcon(props),
-        baseProviderIcon: (props) => SupabaseIcon(props),
-        scopes: ['database.read', 'database.write', 'projects.read'],
-      },
-    },
-    defaultService: 'supabase',
-  },
+  // supabase: {
+  //   id: 'supabase',
+  //   name: 'Supabase',
+  //   icon: (props) => SupabaseIcon(props),
+  //   services: {
+  //     supabase: {
+  //       id: 'supabase',
+  //       name: 'Supabase',
+  //       description: 'Connect to your Supabase projects and manage data.',
+  //       providerId: 'supabase',
+  //       icon: (props) => SupabaseIcon(props),
+  //       baseProviderIcon: (props) => SupabaseIcon(props),
+  //       scopes: ['database.read', 'database.write', 'projects.read'],
+  //     },
+  //   },
+  //   defaultService: 'supabase',
+  // },
   confluence: {
     id: 'confluence',
     name: 'Confluence',
@@ -484,23 +499,23 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
     },
     defaultService: 'airtable',
   },
-  discord: {
-    id: 'discord',
-    name: 'Discord',
-    icon: (props) => DiscordIcon(props),
-    services: {
-      discord: {
-        id: 'discord',
-        name: 'Discord',
-        description: 'Read and send messages to Discord channels and interact with servers.',
-        providerId: 'discord',
-        icon: (props) => DiscordIcon(props),
-        baseProviderIcon: (props) => DiscordIcon(props),
-        scopes: ['identify', 'bot', 'messages.read', 'guilds', 'guilds.members.read'],
-      },
-    },
-    defaultService: 'discord',
-  },
+  // discord: {
+  //   id: 'discord',
+  //   name: 'Discord',
+  //   icon: (props) => DiscordIcon(props),
+  //   services: {
+  //     discord: {
+  //       id: 'discord',
+  //       name: 'Discord',
+  //       description: 'Read and send messages to Discord channels and interact with servers.',
+  //       providerId: 'discord',
+  //       icon: (props) => DiscordIcon(props),
+  //       baseProviderIcon: (props) => DiscordIcon(props),
+  //       scopes: ['identify', 'bot', 'messages.read', 'guilds', 'guilds.members.read'],
+  //     },
+  //   },
+  //   defaultService: 'discord',
+  // },
   notion: {
     id: 'notion',
     name: 'Notion',
@@ -534,6 +549,55 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
       },
     },
     defaultService: 'linear',
+  },
+  dropbox: {
+    id: 'dropbox',
+    name: 'Dropbox',
+    icon: (props) => DropboxIcon(props),
+    services: {
+      dropbox: {
+        id: 'dropbox',
+        name: 'Dropbox',
+        description: 'Upload, download, share, and manage files in Dropbox.',
+        providerId: 'dropbox',
+        icon: (props) => DropboxIcon(props),
+        baseProviderIcon: (props) => DropboxIcon(props),
+        scopes: [
+          'account_info.read',
+          'files.metadata.read',
+          'files.metadata.write',
+          'files.content.read',
+          'files.content.write',
+          'sharing.read',
+          'sharing.write',
+        ],
+      },
+    },
+    defaultService: 'dropbox',
+  },
+  shopify: {
+    id: 'shopify',
+    name: 'Shopify',
+    icon: (props) => ShopifyIcon(props),
+    services: {
+      shopify: {
+        id: 'shopify',
+        name: 'Shopify',
+        description: 'Manage products, orders, and customers in your Shopify store.',
+        providerId: 'shopify',
+        icon: (props) => ShopifyIcon(props),
+        baseProviderIcon: (props) => ShopifyIcon(props),
+        scopes: [
+          'write_products',
+          'write_orders',
+          'write_customers',
+          'write_inventory',
+          'read_locations',
+          'write_merchant_managed_fulfillment_orders',
+        ],
+      },
+    },
+    defaultService: 'shopify',
   },
   slack: {
     id: 'slack',
@@ -732,6 +796,23 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
     },
     defaultService: 'hubspot',
   },
+  linkedin: {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    icon: (props) => LinkedInIcon(props),
+    services: {
+      linkedin: {
+        id: 'linkedin',
+        name: 'LinkedIn',
+        description: 'Share posts and access profile data on LinkedIn.',
+        providerId: 'linkedin',
+        icon: (props) => LinkedInIcon(props),
+        baseProviderIcon: (props) => LinkedInIcon(props),
+        scopes: ['profile', 'openid', 'email', 'w_member_social'],
+      },
+    },
+    defaultService: 'linkedin',
+  },
   salesforce: {
     id: 'salesforce',
     name: 'Salesforce',
@@ -749,6 +830,83 @@ export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
     },
     defaultService: 'salesforce',
   },
+  zoom: {
+    id: 'zoom',
+    name: 'Zoom',
+    icon: (props) => ZoomIcon(props),
+    services: {
+      zoom: {
+        id: 'zoom',
+        name: 'Zoom',
+        description: 'Create and manage Zoom meetings, users, and recordings.',
+        providerId: 'zoom',
+        icon: (props) => ZoomIcon(props),
+        baseProviderIcon: (props) => ZoomIcon(props),
+        scopes: [
+          'user:read:user',
+          'meeting:write:meeting',
+          'meeting:read:meeting',
+          'meeting:read:list_meetings',
+          'meeting:update:meeting',
+          'meeting:delete:meeting',
+          'meeting:read:invitation',
+          'meeting:read:list_past_participants',
+          'cloud_recording:read:list_user_recordings',
+          'cloud_recording:read:list_recording_files',
+          'cloud_recording:delete:recording_file',
+        ],
+      },
+    },
+    defaultService: 'zoom',
+  },
+  wordpress: {
+    id: 'wordpress',
+    name: 'WordPress',
+    icon: (props) => WordpressIcon(props),
+    services: {
+      wordpress: {
+        id: 'wordpress',
+        name: 'WordPress',
+        description: 'Manage posts, pages, media, comments, and more on WordPress sites.',
+        providerId: 'wordpress',
+        icon: (props) => WordpressIcon(props),
+        baseProviderIcon: (props) => WordpressIcon(props),
+        scopes: ['global'],
+      },
+    },
+    defaultService: 'wordpress',
+  },
+}
+
+/**
+ * Service metadata without React components - safe for server-side use
+ */
+export interface OAuthServiceMetadata {
+  providerId: string
+  name: string
+  description: string
+  baseProvider: string
+}
+
+/**
+ * Returns a flat list of all available OAuth services with metadata.
+ * This is safe to use on the server as it doesn't include React components.
+ */
+export function getAllOAuthServices(): OAuthServiceMetadata[] {
+  const services: OAuthServiceMetadata[] = []
+
+  for (const [baseProviderId, provider] of Object.entries(OAUTH_PROVIDERS)) {
+    for (const service of Object.values(provider.services)) {
+      services.push({
+        providerId: service.providerId,
+        name: service.name,
+        description: service.description,
+        baseProvider: baseProviderId,
+      })
+    }
+  }
+
+  return services
 }
 
 export function getServiceByProviderAndId(
@@ -1033,18 +1191,18 @@ function getProviderAuthConfig(provider: string): ProviderAuthConfig {
         supportsRefreshTokenRotation: true,
       }
     }
-    case 'supabase': {
-      const { clientId, clientSecret } = getCredentials(
-        env.SUPABASE_CLIENT_ID,
-        env.SUPABASE_CLIENT_SECRET
-      )
-      return {
-        tokenEndpoint: 'https://api.supabase.com/v1/oauth/token',
-        clientId,
-        clientSecret,
-        useBasicAuth: false,
-      }
-    }
+    // case 'supabase': {
+    //   const { clientId, clientSecret } = getCredentials(
+    //     env.SUPABASE_CLIENT_ID,
+    //     env.SUPABASE_CLIENT_SECRET
+    //   )
+    //   return {
+    //     tokenEndpoint: 'https://api.supabase.com/v1/oauth/token',
+    //     clientId,
+    //     clientSecret,
+    //     useBasicAuth: false,
+    //   }
+    // }
     case 'notion': {
       const { clientId, clientSecret } = getCredentials(
         env.NOTION_CLIENT_ID,
@@ -1057,18 +1215,18 @@ function getProviderAuthConfig(provider: string): ProviderAuthConfig {
         useBasicAuth: false,
       }
     }
-    case 'discord': {
-      const { clientId, clientSecret } = getCredentials(
-        env.DISCORD_CLIENT_ID,
-        env.DISCORD_CLIENT_SECRET
-      )
-      return {
-        tokenEndpoint: 'https://discord.com/api/v10/oauth2/token',
-        clientId,
-        clientSecret,
-        useBasicAuth: true,
-      }
-    }
+    // case 'discord': {
+    //   const { clientId, clientSecret } = getCredentials(
+    //     env.DISCORD_CLIENT_ID,
+    //     env.DISCORD_CLIENT_SECRET
+    //   )
+    //   return {
+    //     tokenEndpoint: 'https://discord.com/api/v10/oauth2/token',
+    //     clientId,
+    //     clientSecret,
+    //     useBasicAuth: true,
+    //   }
+    // }
     case 'microsoft': {
       const { clientId, clientSecret } = getCredentials(
         env.MICROSOFT_CLIENT_ID,
@@ -1127,6 +1285,18 @@ function getProviderAuthConfig(provider: string): ProviderAuthConfig {
         clientId,
         clientSecret,
         useBasicAuth: true,
+      }
+    }
+    case 'dropbox': {
+      const { clientId, clientSecret } = getCredentials(
+        env.DROPBOX_CLIENT_ID,
+        env.DROPBOX_CLIENT_SECRET
+      )
+      return {
+        tokenEndpoint: 'https://api.dropboxapi.com/oauth2/token',
+        clientId,
+        clientSecret,
+        useBasicAuth: false,
       }
     }
     case 'slack': {
@@ -1219,6 +1389,19 @@ function getProviderAuthConfig(provider: string): ProviderAuthConfig {
         supportsRefreshTokenRotation: true,
       }
     }
+    case 'linkedin': {
+      const { clientId, clientSecret } = getCredentials(
+        env.LINKEDIN_CLIENT_ID,
+        env.LINKEDIN_CLIENT_SECRET
+      )
+      return {
+        tokenEndpoint: 'https://www.linkedin.com/oauth/v2/accessToken',
+        clientId,
+        clientSecret,
+        useBasicAuth: false,
+        supportsRefreshTokenRotation: false,
+      }
+    }
     case 'salesforce': {
       const { clientId, clientSecret } = getCredentials(
         env.SALESFORCE_CLIENT_ID,
@@ -1226,6 +1409,46 @@ function getProviderAuthConfig(provider: string): ProviderAuthConfig {
       )
       return {
         tokenEndpoint: 'https://login.salesforce.com/services/oauth2/token',
+        clientId,
+        clientSecret,
+        useBasicAuth: false,
+        supportsRefreshTokenRotation: false,
+      }
+    }
+    case 'shopify': {
+      // Shopify access tokens don't expire and don't support refresh tokens
+      // This configuration is provided for completeness but won't be used for token refresh
+      const { clientId, clientSecret } = getCredentials(
+        env.SHOPIFY_CLIENT_ID,
+        env.SHOPIFY_CLIENT_SECRET
+      )
+      return {
+        tokenEndpoint: 'https://accounts.shopify.com/oauth/token',
+        clientId,
+        clientSecret,
+        useBasicAuth: false,
+        supportsRefreshTokenRotation: false,
+      }
+    }
+    case 'zoom': {
+      const { clientId, clientSecret } = getCredentials(env.ZOOM_CLIENT_ID, env.ZOOM_CLIENT_SECRET)
+      return {
+        tokenEndpoint: 'https://zoom.us/oauth/token',
+        clientId,
+        clientSecret,
+        useBasicAuth: true,
+        supportsRefreshTokenRotation: false,
+      }
+    }
+    case 'wordpress': {
+      // WordPress.com does NOT support refresh tokens
+      // Users will need to re-authorize when tokens expire (~2 weeks)
+      const { clientId, clientSecret } = getCredentials(
+        env.WORDPRESS_CLIENT_ID,
+        env.WORDPRESS_CLIENT_SECRET
+      )
+      return {
+        tokenEndpoint: 'https://public-api.wordpress.com/oauth2/token',
         clientId,
         clientSecret,
         useBasicAuth: false,

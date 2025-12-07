@@ -19,6 +19,7 @@ import {
   OllamaIcon,
   OpenAIIcon,
   OpenRouterIcon,
+  VllmIcon,
   xAIIcon,
 } from '@/components/icons'
 
@@ -80,6 +81,19 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       toolUsageControl: true,
     },
     contextInformationAvailable: false,
+    models: [],
+  },
+  vllm: {
+    id: 'vllm',
+    name: 'vLLM',
+    icon: VllmIcon,
+    description: 'Self-hosted vLLM with an OpenAI-compatible API',
+    defaultModel: 'vllm/generic',
+    modelPatterns: [/^vllm\//],
+    capabilities: {
+      temperature: { min: 0, max: 2 },
+      toolUsageControl: true,
+    },
     models: [],
   },
   openai: {
@@ -575,6 +589,19 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         contextWindow: 200000,
       },
       {
+        id: 'claude-opus-4-5',
+        pricing: {
+          input: 5.0,
+          cachedInput: 0.5,
+          output: 25.0,
+          updatedAt: '2025-11-24',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 200000,
+      },
+      {
         id: 'claude-opus-4-1',
         pricing: {
           input: 15.0,
@@ -657,10 +684,10 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       {
         id: 'gemini-2.5-pro',
         pricing: {
-          input: 0.15,
-          cachedInput: 0.075,
-          output: 0.6,
-          updatedAt: '2025-06-17',
+          input: 1.25,
+          cachedInput: 0.125,
+          output: 10.0,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 2 },
@@ -670,10 +697,23 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       {
         id: 'gemini-2.5-flash',
         pricing: {
-          input: 0.15,
-          cachedInput: 0.075,
-          output: 0.6,
-          updatedAt: '2025-06-17',
+          input: 0.3,
+          cachedInput: 0.03,
+          output: 2.5,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 2 },
+        },
+        contextWindow: 1048576,
+      },
+      {
+        id: 'gemini-2.5-flash-lite',
+        pricing: {
+          input: 0.1,
+          cachedInput: 0.01,
+          output: 0.4,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 2 },
@@ -745,14 +785,53 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         id: 'grok-4-latest',
         pricing: {
           input: 3.0,
-          cachedInput: 1.5,
+          cachedInput: 0.75,
           output: 15.0,
-          updatedAt: '2025-10-11',
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
         },
         contextWindow: 256000,
+      },
+      {
+        id: 'grok-4-0709',
+        pricing: {
+          input: 3.0,
+          cachedInput: 0.75,
+          output: 15.0,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'grok-4-1-fast-reasoning',
+        pricing: {
+          input: 0.2,
+          cachedInput: 0.05,
+          output: 0.5,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 2000000,
+      },
+      {
+        id: 'grok-4-1-fast-non-reasoning',
+        pricing: {
+          input: 0.2,
+          cachedInput: 0.05,
+          output: 0.5,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 2000000,
       },
       {
         id: 'grok-4-fast-reasoning',
@@ -1002,7 +1081,14 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
     name: 'Mistral AI',
     description: "Mistral AI's language models",
     defaultModel: 'mistral-large-latest',
-    modelPatterns: [/^mistral/, /^magistral/, /^open-mistral/, /^codestral/, /^ministral/],
+    modelPatterns: [
+      /^mistral/,
+      /^magistral/,
+      /^open-mistral/,
+      /^codestral/,
+      /^ministral/,
+      /^devstral/,
+    ],
     icon: MistralIcon,
     capabilities: {
       toolUsageControl: true,
@@ -1011,14 +1097,26 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       {
         id: 'mistral-large-latest',
         pricing: {
-          input: 2.0,
-          output: 6.0,
-          updatedAt: '2025-10-11',
+          input: 0.5,
+          output: 1.5,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
         },
-        contextWindow: 128000,
+        contextWindow: 256000,
+      },
+      {
+        id: 'mistral-large-2512',
+        pricing: {
+          input: 0.5,
+          output: 1.5,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
       },
       {
         id: 'mistral-large-2411',
@@ -1049,7 +1147,31 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         pricing: {
           input: 2.0,
           output: 5.0,
-          updatedAt: '2025-10-11',
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 128000,
+      },
+      {
+        id: 'magistral-small-latest',
+        pricing: {
+          input: 0.5,
+          output: 1.5,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 128000,
+      },
+      {
+        id: 'magistral-small-2509',
+        pricing: {
+          input: 0.5,
+          output: 1.5,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1061,7 +1183,7 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         pricing: {
           input: 0.4,
           output: 2.0,
-          updatedAt: '2025-10-11',
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1081,11 +1203,23 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         contextWindow: 128000,
       },
       {
+        id: 'mistral-medium-2505',
+        pricing: {
+          input: 0.4,
+          output: 2.0,
+          updatedAt: '2025-05-07',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 128000,
+      },
+      {
         id: 'mistral-small-latest',
         pricing: {
-          input: 0.2,
-          output: 0.6,
-          updatedAt: '2025-10-11',
+          input: 0.1,
+          output: 0.3,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1095,9 +1229,9 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       {
         id: 'mistral-small-2506',
         pricing: {
-          input: 0.2,
-          output: 0.6,
-          updatedAt: '2025-10-11',
+          input: 0.1,
+          output: 0.3,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1141,11 +1275,11 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         contextWindow: 256000,
       },
       {
-        id: 'ministral-8b-latest',
+        id: 'devstral-small-latest',
         pricing: {
           input: 0.1,
-          output: 0.1,
-          updatedAt: '2025-10-11',
+          output: 0.3,
+          updatedAt: '2025-12-02',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1153,11 +1287,83 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
         contextWindow: 128000,
       },
       {
+        id: 'devstral-small-2507',
+        pricing: {
+          input: 0.1,
+          output: 0.3,
+          updatedAt: '2025-07-10',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 128000,
+      },
+      {
+        id: 'devstral-medium-2507',
+        pricing: {
+          input: 0.5,
+          output: 1.5,
+          updatedAt: '2025-07-10',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 128000,
+      },
+      {
+        id: 'ministral-14b-latest',
+        pricing: {
+          input: 0.2,
+          output: 0.2,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'ministral-14b-2512',
+        pricing: {
+          input: 0.2,
+          output: 0.2,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'ministral-8b-latest',
+        pricing: {
+          input: 0.15,
+          output: 0.15,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'ministral-8b-2512',
+        pricing: {
+          input: 0.15,
+          output: 0.15,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
         id: 'ministral-8b-2410',
         pricing: {
           input: 0.1,
           output: 0.1,
-          updatedAt: '2025-10-11',
+          updatedAt: '2025-10-09',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1167,9 +1373,33 @@ export const PROVIDER_DEFINITIONS: Record<string, ProviderDefinition> = {
       {
         id: 'ministral-3b-latest',
         pricing: {
+          input: 0.1,
+          output: 0.1,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'ministral-3b-2512',
+        pricing: {
+          input: 0.1,
+          output: 0.1,
+          updatedAt: '2025-12-02',
+        },
+        capabilities: {
+          temperature: { min: 0, max: 1 },
+        },
+        contextWindow: 256000,
+      },
+      {
+        id: 'ministral-3b-2410',
+        pricing: {
           input: 0.04,
           output: 0.04,
-          updatedAt: '2025-10-11',
+          updatedAt: '2025-10-09',
         },
         capabilities: {
           temperature: { min: 0, max: 1 },
@@ -1309,8 +1539,11 @@ export function getProvidersWithToolUsageControl(): string[] {
  * Get all models that are hosted (don't require user API keys)
  */
 export function getHostedModels(): string[] {
-  // Currently, OpenAI and Anthropic models are hosted
-  return [...getProviderModels('openai'), ...getProviderModels('anthropic')]
+  return [
+    ...getProviderModels('openai'),
+    ...getProviderModels('anthropic'),
+    ...getProviderModels('google'),
+  ]
 }
 
 /**
@@ -1356,6 +1589,21 @@ export function supportsToolUsageControl(providerId: string): boolean {
  */
 export function updateOllamaModels(models: string[]): void {
   PROVIDER_DEFINITIONS.ollama.models = models.map((modelId) => ({
+    id: modelId,
+    pricing: {
+      input: 0,
+      output: 0,
+      updatedAt: new Date().toISOString().split('T')[0],
+    },
+    capabilities: {},
+  }))
+}
+
+/**
+ * Update vLLM models dynamically
+ */
+export function updateVLLMModels(models: string[]): void {
+  PROVIDER_DEFINITIONS.vllm.models = models.map((modelId) => ({
     id: modelId,
     pricing: {
       input: 0,

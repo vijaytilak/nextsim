@@ -3,17 +3,34 @@ import { useParams } from 'next/navigation'
 import { Handle, type NodeProps, Position, useUpdateNodeInternals } from 'reactflow'
 import { Badge } from '@/components/emcn/components/badge/badge'
 import { Tooltip } from '@/components/emcn/components/tooltip/tooltip'
-import { getEnv, isTruthy } from '@/lib/env'
+import { getEnv, isTruthy } from '@/lib/core/config/env'
+import { cn } from '@/lib/core/utils/cn'
 import { createLogger } from '@/lib/logs/console/logger'
 import { createMcpToolId } from '@/lib/mcp/utils'
-import { cn } from '@/lib/utils'
+import { getProviderIdFromServiceId } from '@/lib/oauth'
 import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
-import { useBlockCore } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks'
+import {
+  ActionBar,
+  Connections,
+} from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-block/components'
+import {
+  useBlockProperties,
+  useChildWorkflow,
+  useScheduleInfo,
+  useWebhookInfo,
+} from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-block/hooks'
+import type { WorkflowBlockProps } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-block/types'
+import {
+  getProviderName,
+  shouldSkipBlockRender,
+} from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-block/utils'
+import { useBlockVisual } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks'
 import {
   BLOCK_DIMENSIONS,
   useBlockDimensions,
 } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks/use-block-dimensions'
 import { SELECTOR_TYPES_HYDRATION_REQUIRED, type SubBlockConfig } from '@/blocks/types'
+import { getDependsOnFields } from '@/blocks/utils'
 import { useMcpServers, useMcpToolsQuery } from '@/hooks/queries/mcp'
 import { useCredentialName } from '@/hooks/queries/oauth-credentials'
 import { useCollaborativeWorkflow } from '@/hooks/use-collaborative-workflow'
@@ -22,10 +39,6 @@ import { useSelectorDisplayName } from '@/hooks/use-selector-display-name'
 import { useVariablesStore } from '@/stores/panel/variables/store'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 import { useSubBlockStore } from '@/stores/workflows/subblock/store'
-import { ActionBar, Connections } from './components'
-import { useBlockProperties, useChildWorkflow, useScheduleInfo, useWebhookInfo } from './hooks'
-import type { WorkflowBlockProps } from './types'
-import { getProviderName, shouldSkipBlockRender } from './utils'
 
 const logger = createLogger('WorkflowBlock')
 
@@ -128,7 +141,6 @@ const getDisplayValue = (value: unknown): string => {
     const firstMessage = value[0]
     if (!firstMessage?.content || firstMessage.content.trim() === '') return '-'
     const content = firstMessage.content.trim()
-    // Show first 50 characters of the first message content
     return content.length > 50 ? `${content.slice(0, 50)}...` : content
   }
 
@@ -250,8 +262,9 @@ const SubBlockRow = ({
   )
 
   const dependencyValues = useMemo(() => {
-    if (!subBlock?.dependsOn?.length) return {}
-    return subBlock.dependsOn.reduce<Record<string, string>>((accumulator, dependency) => {
+    const fields = getDependsOnFields(subBlock?.dependsOn)
+    if (!fields.length) return {}
+    return fields.reduce<Record<string, string>>((accumulator, dependency) => {
       const dependencyValue = getStringValue(dependency)
       if (dependencyValue) {
         accumulator[dependency] = dependencyValue
@@ -262,9 +275,12 @@ const SubBlockRow = ({
 
   const credentialSourceId =
     subBlock?.type === 'oauth-input' && typeof rawValue === 'string' ? rawValue : undefined
+  const credentialProviderId = subBlock?.serviceId
+    ? getProviderIdFromServiceId(subBlock.serviceId)
+    : undefined
   const { displayName: credentialName } = useCredentialName(
     credentialSourceId,
-    subBlock?.provider,
+    credentialProviderId,
     workflowId
   )
 
@@ -315,7 +331,6 @@ const SubBlockRow = ({
       ? (workflowMap[rawValue]?.name ?? null)
       : null
 
-  // Hydrate MCP server ID to name using TanStack Query
   const { data: mcpServers = [] } = useMcpServers(workspaceId || '')
   const mcpServerDisplayName = useMemo(() => {
     if (subBlock?.type !== 'mcp-server-selector' || typeof rawValue !== 'string') {
@@ -351,7 +366,6 @@ const SubBlockRow = ({
 
     const names = rawValue
       .map((a) => {
-        // Prioritize ID lookup (source of truth) over stored name
         if (a.variableId) {
           const variable = workflowVariables.find((v: any) => v.id === a.variableId)
           return variable?.name
@@ -392,7 +406,7 @@ const SubBlockRow = ({
       </span>
       {displayValue !== undefined && (
         <span
-          className='flex-1 truncate text-right text-[14px] text-[var(--white)]'
+          className='flex-1 truncate text-right text-[14px] text-[var(--text-primary)]'
           title={displayValue}
         >
           {displayValue}
@@ -418,15 +432,11 @@ export const WorkflowBlock = memo(function WorkflowBlock({
     currentWorkflow,
     activeWorkflowId,
     isEnabled,
-    isActive,
-    diffStatus,
-    isDeletedBlock,
-    isFocused,
     handleClick,
     hasRing,
     ringStyles,
     runPathStatus,
-  } = useBlockCore({ blockId: id, data, isPending })
+  } = useBlockVisual({ blockId: id, data, isPending })
 
   const currentBlock = currentWorkflow.getBlockById(id)
 
@@ -439,7 +449,14 @@ export const WorkflowBlock = memo(function WorkflowBlock({
       currentWorkflow.blocks
     )
 
-  const { isWebhookConfigured, webhookProvider, webhookPath } = useWebhookInfo(id)
+  const {
+    isWebhookConfigured,
+    webhookProvider,
+    webhookPath,
+    isDisabled: isWebhookDisabled,
+    webhookId,
+    reactivateWebhook,
+  } = useWebhookInfo(id, currentWorkflowId)
 
   const {
     scheduleInfo,
@@ -545,21 +562,16 @@ export const WorkflowBlock = memo(function WorkflowBlock({
      * Uses preview values in preview mode, diff workflow values in diff mode,
      * or the current block's subblock values otherwise.
      */
-    let stateToUse: Record<string, { value: unknown }> = {}
-
-    if (data.isPreview && data.subBlockValues) {
-      stateToUse = data.subBlockValues
-    } else if (currentWorkflow.isDiffMode && currentBlock) {
-      stateToUse = currentBlock.subBlocks || {}
-    } else {
-      stateToUse = Object.entries(blockSubBlockValues).reduce(
-        (acc, [key, value]) => {
-          acc[key] = { value }
-          return acc
-        },
-        {} as Record<string, { value: unknown }>
-      )
-    }
+    const stateToUse: Record<string, { value: unknown }> =
+      data.isPreview && data.subBlockValues
+        ? data.subBlockValues
+        : Object.entries(blockSubBlockValues).reduce(
+            (acc, [key, value]) => {
+              acc[key] = { value }
+              return acc
+            },
+            {} as Record<string, { value: unknown }>
+          )
 
     const effectiveAdvanced = displayAdvancedMode
     const effectiveTrigger = displayTriggerMode
@@ -740,7 +752,6 @@ export const WorkflowBlock = memo(function WorkflowBlock({
         config.category !== 'triggers' && type !== 'starter' && !displayTriggerMode
       const hasContentBelowHeader = subBlockRows.length > 0 || shouldShowDefaultHandles
 
-      // Count rows based on block type and whether default handles section is shown
       const defaultHandlesRow = shouldShowDefaultHandles ? 1 : 0
 
       let rowsCount = 0
@@ -835,7 +846,7 @@ export const WorkflowBlock = memo(function WorkflowBlock({
             <div
               className='flex h-[24px] w-[24px] flex-shrink-0 items-center justify-center rounded-[6px]'
               style={{
-                backgroundColor: isEnabled ? config.bgColor : 'gray',
+                background: isEnabled ? config.bgColor : 'gray',
               }}
             >
               <config.icon className='h-[16px] w-[16px] text-white' />
@@ -843,7 +854,7 @@ export const WorkflowBlock = memo(function WorkflowBlock({
             <span
               className={cn(
                 'truncate font-medium text-[16px]',
-                !isEnabled && runPathStatus !== 'success' && 'text-[#808080]'
+                !isEnabled && runPathStatus !== 'success' && 'text-[var(--text-muted)]'
               )}
               title={name}
             >
@@ -851,101 +862,62 @@ export const WorkflowBlock = memo(function WorkflowBlock({
             </span>
           </div>
           <div className='relative z-10 flex flex-shrink-0 items-center gap-2'>
-            {isWorkflowSelector && childWorkflowId && (
-              <>
-                {typeof childIsDeployed === 'boolean' ? (
-                  <Tooltip.Root>
-                    <Tooltip.Trigger asChild>
-                      <Badge
-                        variant='outline'
-                        className={!childIsDeployed || childNeedsRedeploy ? 'cursor-pointer' : ''}
-                        style={{
-                          borderColor: !childIsDeployed
-                            ? '#EF4444'
-                            : childNeedsRedeploy
-                              ? '#FF6600'
-                              : '#22C55E',
-                          color: !childIsDeployed
-                            ? '#EF4444'
-                            : childNeedsRedeploy
-                              ? '#FF6600'
-                              : '#22C55E',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (
-                            (!childIsDeployed || childNeedsRedeploy) &&
-                            childWorkflowId &&
-                            !isDeploying
-                          ) {
-                            deployWorkflow(childWorkflowId)
-                          }
-                        }}
-                      >
-                        {isDeploying
-                          ? 'Deploying...'
-                          : !childIsDeployed
-                            ? 'undeployed'
-                            : childNeedsRedeploy
-                              ? 'redeploy'
-                              : 'deployed'}
-                      </Badge>
-                    </Tooltip.Trigger>
-                    {(!childIsDeployed || childNeedsRedeploy) && (
-                      <Tooltip.Content>
-                        <span className='text-sm'>
-                          {!childIsDeployed ? 'Click to deploy' : 'Click to redeploy'}
-                        </span>
-                      </Tooltip.Content>
-                    )}
-                  </Tooltip.Root>
-                ) : (
-                  <Badge variant='outline' style={{ visibility: 'hidden' }}>
-                    deployed
-                  </Badge>
-                )}
-              </>
-            )}
+            {isWorkflowSelector &&
+              childWorkflowId &&
+              typeof childIsDeployed === 'boolean' &&
+              (!childIsDeployed || childNeedsRedeploy) && (
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <Badge
+                      variant='outline'
+                      className='cursor-pointer'
+                      style={{
+                        borderColor: !childIsDeployed ? 'var(--text-error)' : 'var(--warning)',
+                        color: !childIsDeployed ? 'var(--text-error)' : 'var(--warning)',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (childWorkflowId && !isDeploying) {
+                          deployWorkflow(childWorkflowId)
+                        }
+                      }}
+                    >
+                      {isDeploying ? 'Deploying...' : !childIsDeployed ? 'undeployed' : 'redeploy'}
+                    </Badge>
+                  </Tooltip.Trigger>
+                  <Tooltip.Content>
+                    <span className='text-sm'>
+                      {!childIsDeployed ? 'Click to deploy' : 'Click to redeploy'}
+                    </span>
+                  </Tooltip.Content>
+                </Tooltip.Root>
+              )}
             {!isEnabled && <Badge>disabled</Badge>}
 
-            {type === 'schedule' && (
-              <>
-                {shouldShowScheduleBadge ? (
-                  <Tooltip.Root>
-                    <Tooltip.Trigger asChild>
-                      <Badge
-                        variant='outline'
-                        className={scheduleInfo?.isDisabled ? 'cursor-pointer' : ''}
-                        style={{
-                          borderColor: scheduleInfo?.isDisabled ? '#FF6600' : '#22C55E',
-                          color: scheduleInfo?.isDisabled ? '#FF6600' : '#22C55E',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (scheduleInfo?.id) {
-                            if (scheduleInfo.isDisabled) {
-                              reactivateSchedule(scheduleInfo.id)
-                            } else {
-                              disableSchedule(scheduleInfo.id)
-                            }
-                          }
-                        }}
-                      >
-                        {scheduleInfo?.isDisabled ? 'disabled' : 'scheduled'}
-                      </Badge>
-                    </Tooltip.Trigger>
-                    {scheduleInfo?.isDisabled && (
-                      <Tooltip.Content>
-                        <span className='text-sm'>Click to reactivate</span>
-                      </Tooltip.Content>
-                    )}
-                  </Tooltip.Root>
-                ) : (
-                  <Badge variant='outline' style={{ visibility: 'hidden' }}>
-                    scheduled
+            {type === 'schedule' && shouldShowScheduleBadge && scheduleInfo?.isDisabled && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <Badge
+                    variant='outline'
+                    className='cursor-pointer'
+                    style={{
+                      borderColor: 'var(--warning)',
+                      color: 'var(--warning)',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (scheduleInfo?.id) {
+                        reactivateSchedule(scheduleInfo.id)
+                      }
+                    }}
+                  >
+                    disabled
                   </Badge>
-                )}
-              </>
+                </Tooltip.Trigger>
+                <Tooltip.Content>
+                  <span className='text-sm'>Click to reactivate</span>
+                </Tooltip.Content>
+              </Tooltip.Root>
             )}
 
             {showWebhookIndicator && (
@@ -973,6 +945,27 @@ export const WorkflowBlock = memo(function WorkflowBlock({
                       This workflow is triggered by a webhook.
                     </p>
                   )}
+                </Tooltip.Content>
+              </Tooltip.Root>
+            )}
+
+            {isWebhookConfigured && isWebhookDisabled && webhookId && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <Badge
+                    variant='outline'
+                    className='cursor-pointer'
+                    style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      reactivateWebhook(webhookId)
+                    }}
+                  >
+                    disabled
+                  </Badge>
+                </Tooltip.Trigger>
+                <Tooltip.Content>
+                  <span className='text-sm'>Click to reactivate</span>
                 </Tooltip.Content>
               </Tooltip.Root>
             )}

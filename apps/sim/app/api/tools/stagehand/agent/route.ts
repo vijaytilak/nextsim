@@ -1,7 +1,7 @@
 import { Stagehand } from '@browserbasehq/stagehand'
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { env } from '@/lib/env'
+import { env } from '@/lib/core/config/env'
 import { createLogger } from '@/lib/logs/console/logger'
 import { ensureZodObject, normalizeUrl } from '@/app/api/tools/stagehand/utils'
 
@@ -965,7 +965,7 @@ The system will substitute actual values when these placeholders are used, keepi
                 instruction:
                   'Extract the requested information from this page according to the schema',
                 schema: zodSchema,
-              })
+              } as any)
 
               logger.info('Successfully extracted structured data as fallback', {
                 keys: structuredOutput ? Object.keys(structuredOutput) : [],

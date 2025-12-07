@@ -12,9 +12,9 @@ import {
   Workflow,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { cn } from '@/lib/core/utils/cn'
 import { createLogger } from '@/lib/logs/console/logger'
-import { cn } from '@/lib/utils'
-import { inter } from '@/app/fonts/inter/inter'
+import { inter } from '@/app/_styles/fonts/inter/inter'
 import {
   ENTERPRISE_PLAN_FEATURES,
   PRO_PLAN_FEATURES,

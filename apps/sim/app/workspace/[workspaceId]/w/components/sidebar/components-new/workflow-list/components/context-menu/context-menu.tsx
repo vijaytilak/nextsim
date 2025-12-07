@@ -61,6 +61,31 @@ interface ContextMenuProps {
    * Set to true for items that can be exported (like workspaces)
    */
   showExport?: boolean
+  /**
+   * Whether the export option is disabled (default: false)
+   * Set to true when user lacks permissions
+   */
+  disableExport?: boolean
+  /**
+   * Whether the rename option is disabled (default: false)
+   * Set to true when user lacks permissions
+   */
+  disableRename?: boolean
+  /**
+   * Whether the duplicate option is disabled (default: false)
+   * Set to true when user lacks permissions
+   */
+  disableDuplicate?: boolean
+  /**
+   * Whether the delete option is disabled (default: false)
+   * Set to true when user lacks permissions
+   */
+  disableDelete?: boolean
+  /**
+   * Whether the create option is disabled (default: false)
+   * Set to true when creation is in progress or user lacks permissions
+   */
+  disableCreate?: boolean
 }
 
 /**
@@ -84,6 +109,11 @@ export function ContextMenu({
   showCreate = false,
   showDuplicate = true,
   showExport = false,
+  disableExport = false,
+  disableRename = false,
+  disableDuplicate = false,
+  disableDelete = false,
+  disableCreate = false,
 }: ContextMenuProps) {
   return (
     <Popover open={isOpen} onOpenChange={onClose}>
@@ -99,6 +129,7 @@ export function ContextMenu({
       <PopoverContent ref={menuRef} align='start' side='bottom' sideOffset={4}>
         {showRename && onRename && (
           <PopoverItem
+            disabled={disableRename}
             onClick={() => {
               onRename()
               onClose()
@@ -110,6 +141,7 @@ export function ContextMenu({
         )}
         {showCreate && onCreate && (
           <PopoverItem
+            disabled={disableCreate}
             onClick={() => {
               onCreate()
               onClose()
@@ -121,6 +153,7 @@ export function ContextMenu({
         )}
         {showDuplicate && onDuplicate && (
           <PopoverItem
+            disabled={disableDuplicate}
             onClick={() => {
               onDuplicate()
               onClose()
@@ -132,6 +165,7 @@ export function ContextMenu({
         )}
         {showExport && onExport && (
           <PopoverItem
+            disabled={disableExport}
             onClick={() => {
               onExport()
               onClose()
@@ -142,6 +176,7 @@ export function ContextMenu({
           </PopoverItem>
         )}
         <PopoverItem
+          disabled={disableDelete}
           onClick={() => {
             onDelete()
             onClose()

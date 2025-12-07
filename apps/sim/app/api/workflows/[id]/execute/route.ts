@@ -1,22 +1,26 @@
+import { tasks } from '@trigger.dev/sdk'
 import { type NextRequest, NextResponse } from 'next/server'
 import { validate as uuidValidate, v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 import { checkHybridAuth } from '@/lib/auth/hybrid'
-import { checkServerSideUsageLimits } from '@/lib/billing'
+import { env, isTruthy } from '@/lib/core/config/env'
+import { generateRequestId } from '@/lib/core/utils/request'
+import { SSE_HEADERS } from '@/lib/core/utils/sse'
+import { getBaseUrl } from '@/lib/core/utils/urls'
 import { processInputFileFields } from '@/lib/execution/files'
+import { preprocessExecution } from '@/lib/execution/preprocessing'
 import { createLogger } from '@/lib/logs/console/logger'
 import { LoggingSession } from '@/lib/logs/execution/logging-session'
-import { generateRequestId, SSE_HEADERS } from '@/lib/utils'
-import {
-  loadDeployedWorkflowState,
-  loadWorkflowFromNormalizedTables,
-} from '@/lib/workflows/db-helpers'
 import { executeWorkflowCore } from '@/lib/workflows/executor/execution-core'
 import { type ExecutionEvent, encodeSSEEvent } from '@/lib/workflows/executor/execution-events'
 import { PauseResumeManager } from '@/lib/workflows/executor/human-in-the-loop-manager'
-import { createStreamingResponse } from '@/lib/workflows/streaming'
+import {
+  loadDeployedWorkflowState,
+  loadWorkflowFromNormalizedTables,
+} from '@/lib/workflows/persistence/utils'
+import { createStreamingResponse } from '@/lib/workflows/streaming/streaming'
 import { createHttpResponseFromBlock, workflowHasResponseBlock } from '@/lib/workflows/utils'
-import { validateWorkflowAccess } from '@/app/api/workflows/middleware'
+import type { WorkflowExecutionPayload } from '@/background/workflow-execution'
 import { type ExecutionMetadata, ExecutionSnapshot } from '@/executor/execution/snapshot'
 import type { StreamingExecution } from '@/executor/types'
 import { Serializer } from '@/serializer'
@@ -30,8 +34,7 @@ const ExecuteWorkflowSchema = z.object({
   stream: z.boolean().optional(),
   useDraftState: z.boolean().optional(),
   input: z.any().optional(),
-  startBlockId: z.string().optional(),
-  // Optional workflow state override (for executing diff workflows)
+  isClientSession: z.boolean().optional(),
   workflowStateOverride: z
     .object({
       blocks: z.record(z.any()),
@@ -45,30 +48,21 @@ const ExecuteWorkflowSchema = z.object({
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-class UsageLimitError extends Error {
-  statusCode: number
-  constructor(message: string, statusCode = 402) {
-    super(message)
-    this.statusCode = statusCode
-  }
-}
-
 /**
  * Execute workflow with streaming support - used by chat and other streaming endpoints
  *
+ * This function assumes preprocessing has already been completed.
+ * Callers must run preprocessExecution() first to validate workflow, check usage limits,
+ * and resolve actor before calling this function.
+ *
  * This is a wrapper function that:
- * - Checks usage limits before execution (protects chat and streaming paths)
- * - Logs usage limit errors to the database for user visibility
  * - Supports streaming callbacks (onStream, onBlockComplete)
  * - Returns ExecutionResult instead of NextResponse
+ * - Handles pause/resume logic
  *
  * Used by:
  * - Chat execution (/api/chat/[identifier]/route.ts)
  * - Streaming responses (lib/workflows/streaming.ts)
- *
- * Note: The POST handler in this file calls executeWorkflowCore() directly and has
- * its own usage check. This wrapper provides convenience and built-in protection
- * for callers that need streaming support.
  */
 export async function executeWorkflow(
   workflow: any,
@@ -92,54 +86,23 @@ export async function executeWorkflow(
   const loggingSession = new LoggingSession(workflowId, executionId, triggerType, requestId)
 
   try {
-    const usageCheck = await checkServerSideUsageLimits(actorUserId)
-    if (usageCheck.isExceeded) {
-      logger.warn(
-        `[${requestId}] User ${actorUserId} has exceeded usage limits. Blocking workflow execution.`,
-        {
-          currentUsage: usageCheck.currentUsage,
-          limit: usageCheck.limit,
-          workflowId,
-          triggerType,
-        }
-      )
-
-      await loggingSession.safeStart({
-        userId: actorUserId,
-        workspaceId: workflow.workspaceId || '',
-        variables: {},
-      })
-
-      await loggingSession.safeCompleteWithError({
-        error: {
-          message:
-            usageCheck.message || 'Usage limit exceeded. Please upgrade your plan to continue.',
-          stackTrace: undefined,
-        },
-        traceSpans: [],
-      })
-
-      throw new UsageLimitError(
-        usageCheck.message || 'Usage limit exceeded. Please upgrade your plan to continue.'
-      )
-    }
-
     const metadata: ExecutionMetadata = {
       requestId,
       executionId,
       workflowId,
       workspaceId: workflow.workspaceId,
       userId: actorUserId,
+      workflowUserId: workflow.userId,
       triggerType,
       useDraftState: false,
       startTime: new Date().toISOString(),
+      isClientSession: false,
     }
 
     const snapshot = new ExecutionSnapshot(
       metadata,
       workflow,
       input,
-      {},
       workflow.variables || {},
       streamConfig?.selectedOutputs || []
     )
@@ -259,6 +222,64 @@ function resolveOutputIds(
   })
 }
 
+type AsyncExecutionParams = {
+  requestId: string
+  workflowId: string
+  userId: string
+  input: any
+  triggerType: 'api' | 'webhook' | 'schedule' | 'manual' | 'chat'
+}
+
+/**
+ * Handles async workflow execution by queueing a background job.
+ * Returns immediately with a 202 Accepted response containing the job ID.
+ */
+async function handleAsyncExecution(params: AsyncExecutionParams): Promise<NextResponse> {
+  const { requestId, workflowId, userId, input, triggerType } = params
+  const useTrigger = isTruthy(env.TRIGGER_DEV_ENABLED)
+
+  if (!useTrigger) {
+    logger.warn(`[${requestId}] Async mode requested but TRIGGER_DEV_ENABLED is false`)
+    return NextResponse.json(
+      { error: 'Async execution is not enabled. Set TRIGGER_DEV_ENABLED=true to use async mode.' },
+      { status: 400 }
+    )
+  }
+
+  const payload: WorkflowExecutionPayload = {
+    workflowId,
+    userId,
+    input,
+    triggerType,
+  }
+
+  try {
+    const handle = await tasks.trigger('workflow-execution', payload)
+
+    logger.info(`[${requestId}] Queued async workflow execution`, {
+      workflowId,
+      jobId: handle.id,
+    })
+
+    return NextResponse.json(
+      {
+        success: true,
+        async: true,
+        jobId: handle.id,
+        message: 'Workflow execution queued',
+        statusUrl: `${getBaseUrl()}/api/jobs/${handle.id}`,
+      },
+      { status: 202 }
+    )
+  } catch (error: any) {
+    logger.error(`[${requestId}] Failed to queue async execution`, error)
+    return NextResponse.json(
+      { error: `Failed to queue async execution: ${error.message}` },
+      { status: 500 }
+    )
+  }
+}
+
 /**
  * POST /api/workflows/[id]/execute
  *
@@ -270,22 +291,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id: workflowId } = await params
 
   try {
-    // Authenticate user (API key, session, or internal JWT)
     const auth = await checkHybridAuth(req, { requireWorkflowId: false })
     if (!auth.success || !auth.userId) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 401 })
     }
     const userId = auth.userId
-
-    // Validate workflow access (don't require deployment for manual client runs)
-    const workflowValidation = await validateWorkflowAccess(req, workflowId, false)
-    if (workflowValidation.error) {
-      return NextResponse.json(
-        { error: workflowValidation.error.message },
-        { status: workflowValidation.error.status }
-      )
-    }
-    const workflow = workflowValidation.workflow!
 
     let body: any = {}
     try {
@@ -320,6 +330,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       stream: streamParam,
       useDraftState,
       input: validatedInput,
+      isClientSession = false,
       workflowStateOverride,
     } = validation.data
 
@@ -344,6 +355,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const streamHeader = req.headers.get('X-Stream-Response') === 'true'
     const enableSSE = streamHeader || streamParam === true
+    const executionModeHeader = req.headers.get('X-Execution-Mode')
+    const isAsyncMode = executionModeHeader === 'async'
 
     logger.info(`[${requestId}] Starting server-side execution`, {
       workflowId,
@@ -354,6 +367,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       streamParam,
       streamHeader,
       enableSSE,
+      isAsyncMode,
     })
 
     const executionId = uuidv4()
@@ -375,43 +389,50 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       requestId
     )
 
-    // Check usage limits for this POST handler execution path
-    // Architecture note: This handler calls executeWorkflowCore() directly (both SSE and non-SSE paths).
-    // The executeWorkflow() wrapper function (used by chat) has its own check (line 54).
-    const usageCheck = await checkServerSideUsageLimits(userId)
-    if (usageCheck.isExceeded) {
-      logger.warn(`[${requestId}] User ${userId} has exceeded usage limits. Blocking execution.`, {
-        currentUsage: usageCheck.currentUsage,
-        limit: usageCheck.limit,
-        workflowId,
-        triggerType,
-      })
+    const preprocessResult = await preprocessExecution({
+      workflowId,
+      userId,
+      triggerType: loggingTriggerType,
+      executionId,
+      requestId,
+      checkRateLimit: false, // Manual executions bypass rate limits
+      checkDeployment: !shouldUseDraftState, // Check deployment unless using draft
+      loggingSession,
+    })
 
-      await loggingSession.safeStart({
-        userId,
-        workspaceId: workflow.workspaceId || '',
-        variables: {},
-      })
-
-      await loggingSession.safeCompleteWithError({
-        error: {
-          message:
-            usageCheck.message || 'Usage limit exceeded. Please upgrade your plan to continue.',
-          stackTrace: undefined,
-        },
-        traceSpans: [],
-      })
-
+    if (!preprocessResult.success) {
       return NextResponse.json(
-        {
-          error:
-            usageCheck.message || 'Usage limit exceeded. Please upgrade your plan to continue.',
-        },
-        { status: 402 }
+        { error: preprocessResult.error!.message },
+        { status: preprocessResult.error!.statusCode }
       )
     }
 
-    // Process file fields in workflow input (base64/URL to UserFile conversion)
+    const actorUserId = preprocessResult.actorUserId!
+    const workflow = preprocessResult.workflowRecord!
+
+    logger.info(`[${requestId}] Preprocessing passed`, {
+      workflowId,
+      actorUserId,
+      workspaceId: workflow.workspaceId,
+    })
+
+    if (isAsyncMode) {
+      return handleAsyncExecution({
+        requestId,
+        workflowId,
+        userId: actorUserId,
+        input,
+        triggerType: loggingTriggerType,
+      })
+    }
+
+    let cachedWorkflowData: {
+      blocks: Record<string, any>
+      edges: any[]
+      loops: Record<string, any>
+      parallels: Record<string, any>
+    } | null = null
+
     let processedInput = input
     try {
       const workflowData = shouldUseDraftState
@@ -419,6 +440,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         : await loadDeployedWorkflowState(workflowId)
 
       if (workflowData) {
+        cachedWorkflowData = {
+          blocks: workflowData.blocks,
+          edges: workflowData.edges,
+          loops: workflowData.loops || {},
+          parallels: workflowData.parallels || {},
+        }
+
         const serializedWorkflow = new Serializer().serializeWorkflow(
           workflowData.blocks,
           workflowData.edges,
@@ -438,14 +466,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           serializedWorkflow.blocks,
           executionContext,
           requestId,
-          userId
+          actorUserId
         )
       }
     } catch (fileError) {
       logger.error(`[${requestId}] Failed to process input file fields:`, fileError)
 
       await loggingSession.safeStart({
-        userId,
+        userId: actorUserId,
         workspaceId: workflow.workspaceId || '',
         variables: {},
       })
@@ -466,6 +494,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       )
     }
 
+    const effectiveWorkflowStateOverride = workflowStateOverride || cachedWorkflowData || undefined
+
     if (!enableSSE) {
       logger.info(`[${requestId}] Using non-SSE execution (direct JSON response)`)
       try {
@@ -473,19 +503,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           requestId,
           executionId,
           workflowId,
-          workspaceId: workflow.workspaceId,
-          userId,
+          workspaceId: workflow.workspaceId ?? undefined,
+          userId: actorUserId,
+          sessionUserId: isClientSession ? userId : undefined,
+          workflowUserId: workflow.userId,
           triggerType,
           useDraftState: shouldUseDraftState,
           startTime: new Date().toISOString(),
-          workflowStateOverride,
+          isClientSession,
+          workflowStateOverride: effectiveWorkflowStateOverride,
         }
 
         const snapshot = new ExecutionSnapshot(
           metadata,
           workflow,
           processedInput,
-          {},
           workflow.variables || {},
           selectedOutputs
         )
@@ -516,8 +548,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         return NextResponse.json(filteredResult)
       } catch (error: any) {
-        // Block errors are already logged with full details by BlockExecutor
-        // Only log the error message here to avoid duplicate logging
         const errorMessage = error.message || 'Unknown error'
         logger.error(`[${requestId}] Non-SSE execution failed: ${errorMessage}`)
 
@@ -545,13 +575,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       logger.info(`[${requestId}] Using SSE console log streaming (manual execution)`)
     } else {
       logger.info(`[${requestId}] Using streaming API response`)
-      const deployedData = await loadDeployedWorkflowState(workflowId)
-      const resolvedSelectedOutputs = resolveOutputIds(selectedOutputs, deployedData?.blocks || {})
+
+      const resolvedSelectedOutputs = resolveOutputIds(
+        selectedOutputs,
+        cachedWorkflowData?.blocks || {}
+      )
       const stream = await createStreamingResponse({
         requestId,
-        workflow,
+        workflow: {
+          id: workflow.id,
+          userId: actorUserId,
+          workspaceId: workflow.workspaceId,
+          isDeployed: workflow.isDeployed,
+          variables: (workflow as any).variables,
+        },
         input: processedInput,
-        executingUserId: userId,
+        executingUserId: actorUserId,
         streamConfig: {
           selectedOutputs: resolvedSelectedOutputs,
           isSecureMode: false,
@@ -732,19 +771,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             requestId,
             executionId,
             workflowId,
-            workspaceId: workflow.workspaceId,
-            userId,
+            workspaceId: workflow.workspaceId ?? undefined,
+            userId: actorUserId,
+            sessionUserId: isClientSession ? userId : undefined,
+            workflowUserId: workflow.userId,
             triggerType,
             useDraftState: shouldUseDraftState,
             startTime: new Date().toISOString(),
-            workflowStateOverride,
+            isClientSession,
+            workflowStateOverride: effectiveWorkflowStateOverride,
           }
 
           const snapshot = new ExecutionSnapshot(
             metadata,
             workflow,
             processedInput,
-            {},
             workflow.variables || {},
             selectedOutputs
           )
@@ -808,8 +849,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             },
           })
         } catch (error: any) {
-          // Block errors are already logged with full details by BlockExecutor
-          // Only log the error message here to avoid duplicate logging
           const errorMessage = error.message || 'Unknown error'
           logger.error(`[${requestId}] SSE execution failed: ${errorMessage}`)
 

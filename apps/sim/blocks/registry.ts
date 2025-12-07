@@ -1,17 +1,24 @@
 import { AgentBlock } from '@/blocks/blocks/agent'
+import { AhrefsBlock } from '@/blocks/blocks/ahrefs'
 import { AirtableBlock } from '@/blocks/blocks/airtable'
 import { ApiBlock } from '@/blocks/blocks/api'
 import { ApiTriggerBlock } from '@/blocks/blocks/api_trigger'
+import { ApifyBlock } from '@/blocks/blocks/apify'
 import { ApolloBlock } from '@/blocks/blocks/apollo'
 import { ArxivBlock } from '@/blocks/blocks/arxiv'
 import { AsanaBlock } from '@/blocks/blocks/asana'
+// import { BoxBlock } from '@/blocks/blocks/box' // TODO: Box OAuth integration
 import { BrowserUseBlock } from '@/blocks/blocks/browser_use'
 import { CalendlyBlock } from '@/blocks/blocks/calendly'
 import { ChatTriggerBlock } from '@/blocks/blocks/chat_trigger'
 import { ClayBlock } from '@/blocks/blocks/clay'
 import { ConditionBlock } from '@/blocks/blocks/condition'
 import { ConfluenceBlock } from '@/blocks/blocks/confluence'
+import { DatadogBlock } from '@/blocks/blocks/datadog'
 import { DiscordBlock } from '@/blocks/blocks/discord'
+import { DropboxBlock } from '@/blocks/blocks/dropbox'
+import { DynamoDBBlock } from '@/blocks/blocks/dynamodb'
+import { ElasticsearchBlock } from '@/blocks/blocks/elasticsearch'
 import { ElevenLabsBlock } from '@/blocks/blocks/elevenlabs'
 import { EvaluatorBlock } from '@/blocks/blocks/evaluator'
 import { ExaBlock } from '@/blocks/blocks/exa'
@@ -20,6 +27,7 @@ import { FirecrawlBlock } from '@/blocks/blocks/firecrawl'
 import { FunctionBlock } from '@/blocks/blocks/function'
 import { GenericWebhookBlock } from '@/blocks/blocks/generic_webhook'
 import { GitHubBlock } from '@/blocks/blocks/github'
+import { GitLabBlock } from '@/blocks/blocks/gitlab'
 import { GmailBlock } from '@/blocks/blocks/gmail'
 import { GoogleSearchBlock } from '@/blocks/blocks/google'
 import { GoogleCalendarBlock } from '@/blocks/blocks/google_calendar'
@@ -27,19 +35,27 @@ import { GoogleDocsBlock } from '@/blocks/blocks/google_docs'
 import { GoogleDriveBlock } from '@/blocks/blocks/google_drive'
 import { GoogleFormsBlock } from '@/blocks/blocks/google_form'
 import { GoogleSheetsBlock } from '@/blocks/blocks/google_sheets'
+import { GoogleSlidesBlock } from '@/blocks/blocks/google_slides'
 import { GoogleVaultBlock } from '@/blocks/blocks/google_vault'
+import { GrafanaBlock } from '@/blocks/blocks/grafana'
 import { GuardrailsBlock } from '@/blocks/blocks/guardrails'
 import { HubSpotBlock } from '@/blocks/blocks/hubspot'
 import { HuggingFaceBlock } from '@/blocks/blocks/huggingface'
 import { HumanInTheLoopBlock } from '@/blocks/blocks/human_in_the_loop'
 import { HunterBlock } from '@/blocks/blocks/hunter'
 import { ImageGeneratorBlock } from '@/blocks/blocks/image_generator'
+import { IncidentioBlock } from '@/blocks/blocks/incidentio'
 import { InputTriggerBlock } from '@/blocks/blocks/input_trigger'
+import { IntercomBlock } from '@/blocks/blocks/intercom'
 import { JinaBlock } from '@/blocks/blocks/jina'
 import { JiraBlock } from '@/blocks/blocks/jira'
+import { KalshiBlock } from '@/blocks/blocks/kalshi'
 import { KnowledgeBlock } from '@/blocks/blocks/knowledge'
 import { LinearBlock } from '@/blocks/blocks/linear'
+import { LinkedInBlock } from '@/blocks/blocks/linkedin'
 import { LinkupBlock } from '@/blocks/blocks/linkup'
+import { MailchimpBlock } from '@/blocks/blocks/mailchimp'
+import { MailgunBlock } from '@/blocks/blocks/mailgun'
 import { ManualTriggerBlock } from '@/blocks/blocks/manual_trigger'
 import { McpBlock } from '@/blocks/blocks/mcp'
 import { Mem0Block } from '@/blocks/blocks/mem0'
@@ -60,8 +76,12 @@ import { ParallelBlock } from '@/blocks/blocks/parallel'
 import { PerplexityBlock } from '@/blocks/blocks/perplexity'
 import { PineconeBlock } from '@/blocks/blocks/pinecone'
 import { PipedriveBlock } from '@/blocks/blocks/pipedrive'
+import { PolymarketBlock } from '@/blocks/blocks/polymarket'
 import { PostgreSQLBlock } from '@/blocks/blocks/postgresql'
+import { PostHogBlock } from '@/blocks/blocks/posthog'
+import { PylonBlock } from '@/blocks/blocks/pylon'
 import { QdrantBlock } from '@/blocks/blocks/qdrant'
+import { RDSBlock } from '@/blocks/blocks/rds'
 import { RedditBlock } from '@/blocks/blocks/reddit'
 import { ResendBlock } from '@/blocks/blocks/resend'
 import { ResponseBlock } from '@/blocks/blocks/response'
@@ -69,9 +89,15 @@ import { RouterBlock } from '@/blocks/blocks/router'
 import { S3Block } from '@/blocks/blocks/s3'
 import { SalesforceBlock } from '@/blocks/blocks/salesforce'
 import { ScheduleBlock } from '@/blocks/blocks/schedule'
+import { SearchBlock } from '@/blocks/blocks/search'
+import { SendGridBlock } from '@/blocks/blocks/sendgrid'
+import { SentryBlock } from '@/blocks/blocks/sentry'
 import { SerperBlock } from '@/blocks/blocks/serper'
 import { SharepointBlock } from '@/blocks/blocks/sharepoint'
+import { ShopifyBlock } from '@/blocks/blocks/shopify'
 import { SlackBlock } from '@/blocks/blocks/slack'
+import { SmtpBlock } from '@/blocks/blocks/smtp'
+import { SSHBlock } from '@/blocks/blocks/ssh'
 import { StagehandBlock } from '@/blocks/blocks/stagehand'
 import { StagehandAgentBlock } from '@/blocks/blocks/stagehand_agent'
 import { StartTriggerBlock } from '@/blocks/blocks/start_trigger'
@@ -84,10 +110,12 @@ import { TelegramBlock } from '@/blocks/blocks/telegram'
 import { ThinkingBlock } from '@/blocks/blocks/thinking'
 import { TranslateBlock } from '@/blocks/blocks/translate'
 import { TrelloBlock } from '@/blocks/blocks/trello'
+import { TtsBlock } from '@/blocks/blocks/tts'
 import { TwilioSMSBlock } from '@/blocks/blocks/twilio'
 import { TwilioVoiceBlock } from '@/blocks/blocks/twilio_voice'
 import { TypeformBlock } from '@/blocks/blocks/typeform'
 import { VariablesBlock } from '@/blocks/blocks/variables'
+import { VideoGeneratorBlock } from '@/blocks/blocks/video_generator'
 import { VisionBlock } from '@/blocks/blocks/vision'
 import { WaitBlock } from '@/blocks/blocks/wait'
 import { WealthboxBlock } from '@/blocks/blocks/wealthbox'
@@ -95,36 +123,49 @@ import { WebflowBlock } from '@/blocks/blocks/webflow'
 import { WebhookBlock } from '@/blocks/blocks/webhook'
 import { WhatsAppBlock } from '@/blocks/blocks/whatsapp'
 import { WikipediaBlock } from '@/blocks/blocks/wikipedia'
+import { WordPressBlock } from '@/blocks/blocks/wordpress'
 import { WorkflowBlock } from '@/blocks/blocks/workflow'
 import { WorkflowInputBlock } from '@/blocks/blocks/workflow_input'
 import { XBlock } from '@/blocks/blocks/x'
 import { YouTubeBlock } from '@/blocks/blocks/youtube'
+import { ZendeskBlock } from '@/blocks/blocks/zendesk'
 import { ZepBlock } from '@/blocks/blocks/zep'
+import { ZoomBlock } from '@/blocks/blocks/zoom'
 import type { BlockConfig } from '@/blocks/types'
 
 // Registry of all available blocks, alphabetically sorted
 export const registry: Record<string, BlockConfig> = {
   agent: AgentBlock,
+  ahrefs: AhrefsBlock,
   airtable: AirtableBlock,
-  apollo: ApolloBlock,
   api: ApiBlock,
+  api_trigger: ApiTriggerBlock,
+  apify: ApifyBlock,
+  apollo: ApolloBlock,
   arxiv: ArxivBlock,
   asana: AsanaBlock,
+  // box: BoxBlock, // TODO: Box OAuth integration
   browser_use: BrowserUseBlock,
   calendly: CalendlyBlock,
+  chat_trigger: ChatTriggerBlock,
   clay: ClayBlock,
   condition: ConditionBlock,
   confluence: ConfluenceBlock,
+  datadog: DatadogBlock,
   discord: DiscordBlock,
+  dropbox: DropboxBlock,
   elevenlabs: ElevenLabsBlock,
+  elasticsearch: ElasticsearchBlock,
   evaluator: EvaluatorBlock,
   exa: ExaBlock,
-  firecrawl: FirecrawlBlock,
   file: FileBlock,
+  firecrawl: FirecrawlBlock,
   function: FunctionBlock,
   generic_webhook: GenericWebhookBlock,
   github: GitHubBlock,
+  gitlab: GitLabBlock,
   gmail: GmailBlock,
+  grafana: GrafanaBlock,
   guardrails: GuardrailsBlock,
   google_calendar: GoogleCalendarBlock,
   google_docs: GoogleDocsBlock,
@@ -132,20 +173,29 @@ export const registry: Record<string, BlockConfig> = {
   google_forms: GoogleFormsBlock,
   google_search: GoogleSearchBlock,
   google_sheets: GoogleSheetsBlock,
+  google_slides: GoogleSlidesBlock,
   google_vault: GoogleVaultBlock,
   hubspot: HubSpotBlock,
   huggingface: HuggingFaceBlock,
   human_in_the_loop: HumanInTheLoopBlock,
   hunter: HunterBlock,
   image_generator: ImageGeneratorBlock,
+  incidentio: IncidentioBlock,
+  input_trigger: InputTriggerBlock,
+  intercom: IntercomBlock,
   jina: JinaBlock,
   jira: JiraBlock,
+  kalshi: KalshiBlock,
   knowledge: KnowledgeBlock,
   linear: LinearBlock,
+  linkedin: LinkedInBlock,
   linkup: LinkupBlock,
+  mailchimp: MailchimpBlock,
+  mailgun: MailgunBlock,
+  manual_trigger: ManualTriggerBlock,
   mcp: McpBlock,
   mem0: Mem0Block,
-  zep: ZepBlock,
+  memory: MemoryBlock,
   microsoft_excel: MicrosoftExcelBlock,
   microsoft_planner: MicrosoftPlannerBlock,
   microsoft_teams: MicrosoftTeamsBlock,
@@ -155,35 +205,42 @@ export const registry: Record<string, BlockConfig> = {
   neo4j: Neo4jBlock,
   note: NoteBlock,
   notion: NotionBlock,
+  onedrive: OneDriveBlock,
   openai: OpenAIBlock,
   outlook: OutlookBlock,
-  onedrive: OneDriveBlock,
   parallel_ai: ParallelBlock,
   perplexity: PerplexityBlock,
   pinecone: PineconeBlock,
   pipedrive: PipedriveBlock,
+  polymarket: PolymarketBlock,
   postgresql: PostgreSQLBlock,
+  posthog: PostHogBlock,
+  pylon: PylonBlock,
   qdrant: QdrantBlock,
-  resend: ResendBlock,
-  memory: MemoryBlock,
+  rds: RDSBlock,
+  dynamodb: DynamoDBBlock,
   reddit: RedditBlock,
+  resend: ResendBlock,
   response: ResponseBlock,
   router: RouterBlock,
-  schedule: ScheduleBlock,
   s3: S3Block,
   salesforce: SalesforceBlock,
+  schedule: ScheduleBlock,
+  search: SearchBlock,
+  sendgrid: SendGridBlock,
+  sentry: SentryBlock,
   serper: SerperBlock,
   sharepoint: SharepointBlock,
+  shopify: ShopifyBlock,
+  slack: SlackBlock,
+  smtp: SmtpBlock,
+  ssh: SSHBlock,
   stagehand: StagehandBlock,
   stagehand_agent: StagehandAgentBlock,
-  slack: SlackBlock,
   starter: StarterBlock,
-  stt: SttBlock,
   start_trigger: StartTriggerBlock,
-  input_trigger: InputTriggerBlock,
-  chat_trigger: ChatTriggerBlock,
-  manual_trigger: ManualTriggerBlock,
-  api_trigger: ApiTriggerBlock,
+  stt: SttBlock,
+  tts: TtsBlock,
   stripe: StripeBlock,
   supabase: SupabaseBlock,
   tavily: TavilyBlock,
@@ -195,6 +252,7 @@ export const registry: Record<string, BlockConfig> = {
   twilio_voice: TwilioVoiceBlock,
   typeform: TypeformBlock,
   variables: VariablesBlock,
+  video_generator: VideoGeneratorBlock,
   vision: VisionBlock,
   wait: WaitBlock,
   wealthbox: WealthboxBlock,
@@ -202,10 +260,14 @@ export const registry: Record<string, BlockConfig> = {
   webhook: WebhookBlock,
   whatsapp: WhatsAppBlock,
   wikipedia: WikipediaBlock,
+  wordpress: WordPressBlock,
   workflow: WorkflowBlock,
   workflow_input: WorkflowInputBlock,
   x: XBlock,
   youtube: YouTubeBlock,
+  zep: ZepBlock,
+  zendesk: ZendeskBlock,
+  zoom: ZoomBlock,
 }
 
 export const getBlock = (type: string): BlockConfig | undefined => registry[type]

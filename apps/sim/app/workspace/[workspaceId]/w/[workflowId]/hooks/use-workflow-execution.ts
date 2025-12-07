@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
-import { shallow } from 'zustand/shallow'
 import { createLogger } from '@/lib/logs/console/logger'
 import { buildTraceSpans } from '@/lib/logs/execution/trace-spans/trace-spans'
 import { processStreamingBlockLogs } from '@/lib/tokenization'
@@ -9,8 +8,13 @@ import {
   extractTriggerMockPayload,
   selectBestTrigger,
   triggerNeedsMockPayload,
-} from '@/lib/workflows/trigger-utils'
-import { resolveStartCandidates, StartBlockPath, TriggerUtils } from '@/lib/workflows/triggers'
+} from '@/lib/workflows/triggers/trigger-utils'
+import {
+  resolveStartCandidates,
+  StartBlockPath,
+  TriggerUtils,
+} from '@/lib/workflows/triggers/triggers'
+import { useCurrentWorkflow } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks/use-current-workflow'
 import type { BlockLog, ExecutionResult, StreamingExecution } from '@/executor/types'
 import { subscriptionKeys } from '@/hooks/queries/subscription'
 import { useExecutionStream } from '@/hooks/use-execution-stream'
@@ -23,7 +27,6 @@ import { useWorkflowDiffStore } from '@/stores/workflow-diff'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 import { mergeSubblockState } from '@/stores/workflows/utils'
 import { useWorkflowStore } from '@/stores/workflows/workflow/store'
-import { useCurrentWorkflow } from './use-current-workflow'
 
 const logger = createLogger('useWorkflowExecution')
 
@@ -107,26 +110,7 @@ export function useWorkflowExecution() {
   } = useExecutionStore()
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
   const executionStream = useExecutionStream()
-  const {
-    diffWorkflow: executionDiffWorkflow,
-    isDiffReady: isDiffWorkflowReady,
-    isShowingDiff: isViewingDiff,
-  } = useWorkflowDiffStore(
-    useCallback(
-      (state) => ({
-        diffWorkflow: state.diffWorkflow,
-        isDiffReady: state.isDiffReady,
-        isShowingDiff: state.isShowingDiff,
-      }),
-      []
-    ),
-    shallow
-  )
-  const hasActiveDiffWorkflow =
-    isDiffWorkflowReady &&
-    isViewingDiff &&
-    !!executionDiffWorkflow &&
-    Object.keys(executionDiffWorkflow.blocks || {}).length > 0
+  const isViewingDiff = useWorkflowDiffStore((state) => state.isShowingDiff)
 
   /**
    * Validates debug state before performing debug operations
@@ -329,7 +313,7 @@ export function useWorkflowExecution() {
       if (isChatExecution) {
         const stream = new ReadableStream({
           async start(controller) {
-            const { encodeSSE } = await import('@/lib/utils')
+            const { encodeSSE } = await import('@/lib/core/utils/sse')
             const executionId = uuidv4()
             const streamedContent = new Map<string, string>()
             const streamReadingPromises: Promise<void>[] = []
@@ -478,7 +462,7 @@ export function useWorkflowExecution() {
               if (!selectedOutputs?.length) return
 
               const { extractBlockIdFromOutputId, extractPathFromOutputId, traverseObjectPath } =
-                await import('@/lib/response-format')
+                await import('@/lib/core/utils/response-format')
 
               // Check if this block's output is selected
               const matchingOutputs = selectedOutputs.filter(
@@ -584,7 +568,7 @@ export function useWorkflowExecution() {
                 queryClient.invalidateQueries({ queryKey: subscriptionKeys.user() })
                 queryClient.invalidateQueries({ queryKey: subscriptionKeys.usage() })
 
-                const { encodeSSE } = await import('@/lib/utils')
+                const { encodeSSE } = await import('@/lib/core/utils/sse')
                 controller.enqueue(encodeSSE({ event: 'final', data: result }))
                 // Note: Logs are already persisted server-side via execution-core.ts
               }
@@ -603,7 +587,7 @@ export function useWorkflowExecution() {
               }
 
               // Send the error as final event so downstream handlers can treat it uniformly
-              const { encodeSSE } = await import('@/lib/utils')
+              const { encodeSSE } = await import('@/lib/core/utils/sse')
               controller.enqueue(encodeSSE({ event: 'final', data: errorResult }))
 
               // Do not error the controller to allow consumers to process the final event
@@ -681,9 +665,13 @@ export function useWorkflowExecution() {
     overrideTriggerType?: 'chat' | 'manual' | 'api'
   ): Promise<ExecutionResult | StreamingExecution> => {
     // Use diff workflow for execution when available, regardless of canvas view state
-    const executionWorkflowState =
-      hasActiveDiffWorkflow && executionDiffWorkflow ? executionDiffWorkflow : null
-    const usingDiffForExecution = executionWorkflowState !== null
+    const executionWorkflowState = null as {
+      blocks?: any
+      edges?: any
+      loops?: any
+      parallels?: any
+    } | null
+    const usingDiffForExecution = false
 
     // Read blocks and edges directly from store to ensure we get the latest state,
     // even if React hasn't re-rendered yet after adding blocks/edges
@@ -891,7 +879,7 @@ export function useWorkflowExecution() {
           selectedOutputs,
           triggerType: overrideTriggerType || 'manual',
           useDraftState: true,
-          // Pass diff workflow state if available for execution
+          isClientSession: true,
           workflowStateOverride: executionWorkflowState
             ? {
                 blocks: executionWorkflowState.blocks,

@@ -1,13 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { TAG_SLOTS } from '@/lib/knowledge/consts'
+import { generateRequestId } from '@/lib/core/utils/request'
+import { TAG_SLOTS } from '@/lib/knowledge/constants'
 import { getDocumentTagDefinitions } from '@/lib/knowledge/tags/service'
 import { createLogger } from '@/lib/logs/console/logger'
 import { estimateTokenCount } from '@/lib/tokenization/estimators'
-import { generateRequestId } from '@/lib/utils'
 import { getUserId } from '@/app/api/auth/oauth/utils'
-import { checkKnowledgeBaseAccess } from '@/app/api/knowledge/utils'
-import { calculateCost } from '@/providers/utils'
 import {
   generateSearchEmbedding,
   getDocumentNamesByIds,
@@ -16,7 +14,9 @@ import {
   handleTagOnlySearch,
   handleVectorOnlySearch,
   type SearchResult,
-} from './utils'
+} from '@/app/api/knowledge/search/utils'
+import { checkKnowledgeBaseAccess } from '@/app/api/knowledge/utils'
+import { calculateCost } from '@/providers/utils'
 
 const logger = createLogger('VectorSearchAPI')
 

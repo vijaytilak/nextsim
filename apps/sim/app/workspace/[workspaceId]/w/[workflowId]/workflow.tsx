@@ -11,8 +11,11 @@ import ReactFlow, {
   useReactFlow,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { Loader2 } from 'lucide-react'
+import type { OAuthConnectEventDetail } from '@/lib/copilot/tools/client/other/oauth-request-access'
 import { createLogger } from '@/lib/logs/console/logger'
-import { TriggerUtils } from '@/lib/workflows/triggers'
+import type { OAuthProvider } from '@/lib/oauth'
+import { TriggerUtils } from '@/lib/workflows/triggers/triggers'
 import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
 import {
   CommandList,
@@ -27,6 +30,7 @@ import { Chat } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/ch
 import { Cursors } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/cursors/cursors'
 import { ErrorBoundary } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/error/index'
 import { NoteBlock } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/note-block/note-block'
+import { OAuthRequiredModal } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/panel/components/editor/components/sub-block/components/credential-selector/components/oauth-required-modal'
 import { WorkflowBlock } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-block/workflow-block'
 import { WorkflowEdge } from '@/app/workspace/[workspaceId]/w/[workflowId]/components/workflow-edge/workflow-edge'
 import {
@@ -34,8 +38,8 @@ import {
   useCurrentWorkflow,
   useNodeUtilities,
 } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks'
+import { useSocket } from '@/app/workspace/providers/socket-provider'
 import { getBlock } from '@/blocks'
-import { useSocket } from '@/contexts/socket-context'
 import { isAnnotationOnlyBlock } from '@/executor/consts'
 import { useWorkspaceEnvironment } from '@/hooks/queries/environment'
 import { useCollaborativeWorkflow } from '@/hooks/use-collaborative-workflow'
@@ -43,8 +47,8 @@ import { useStreamCleanup } from '@/hooks/use-stream-cleanup'
 import { useWorkspacePermissions } from '@/hooks/use-workspace-permissions'
 import { useExecutionStore } from '@/stores/execution/store'
 import { useNotificationStore } from '@/stores/notifications/store'
-import { useCopilotStore } from '@/stores/panel-new/copilot/store'
-import { usePanelEditorStore } from '@/stores/panel-new/editor/store'
+import { useCopilotStore } from '@/stores/panel/copilot/store'
+import { usePanelEditorStore } from '@/stores/panel/editor/store'
 import { useGeneralStore } from '@/stores/settings/general/store'
 import { useWorkflowDiffStore } from '@/stores/workflow-diff/store'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
@@ -67,6 +71,8 @@ const edgeTypes: EdgeTypes = {
 // Memoized ReactFlow props to prevent unnecessary re-renders
 const defaultEdgeOptions = { type: 'custom' }
 const snapGrid: [number, number] = [20, 20]
+const reactFlowFitViewOptions = { padding: 0.6 } as const
+const reactFlowProOptions = { hideAttribution: true } as const
 
 interface SelectedEdgeInfo {
   id: string
@@ -92,6 +98,13 @@ const WorkflowContent = React.memo(() => {
 
   // Track whether the active connection drag started from an error handle
   const [isErrorConnectionDrag, setIsErrorConnectionDrag] = useState(false)
+  const [oauthModal, setOauthModal] = useState<{
+    provider: OAuthProvider
+    serviceId: string
+    providerName: string
+    requiredScopes: string[]
+    newScopes?: string[]
+  } | null>(null)
 
   // Hooks
   const params = useParams()
@@ -161,8 +174,40 @@ const WorkflowContent = React.memo(() => {
     return Object.keys(blocks).length === 0
   }, [blocks])
 
+  // Listen for global OAuth connect events (from Copilot tool)
+  useEffect(() => {
+    const handleOpenOAuthConnect = (event: Event) => {
+      const detail = (event as CustomEvent<OAuthConnectEventDetail>).detail
+      if (!detail) return
+      setOauthModal({
+        provider: detail.providerId as OAuthProvider,
+        serviceId: detail.serviceId,
+        providerName: detail.providerName,
+        requiredScopes: detail.requiredScopes || [],
+        newScopes: detail.newScopes || [],
+      })
+    }
+
+    window.addEventListener('open-oauth-connect', handleOpenOAuthConnect as EventListener)
+    return () =>
+      window.removeEventListener('open-oauth-connect', handleOpenOAuthConnect as EventListener)
+  }, [])
+
   // Get diff analysis for edge reconstruction
-  const { diffAnalysis, isShowingDiff, isDiffReady } = useWorkflowDiffStore()
+  const { diffAnalysis, isShowingDiff, isDiffReady, reapplyDiffMarkers, hasActiveDiff } =
+    useWorkflowDiffStore()
+
+  // Re-apply diff markers when blocks change (e.g., after socket rehydration)
+  const blocksRef = useRef(blocks)
+  useEffect(() => {
+    if (hasActiveDiff && isDiffReady && blocks !== blocksRef.current) {
+      blocksRef.current = blocks
+      // Use setTimeout to ensure the store update has settled
+      setTimeout(() => {
+        reapplyDiffMarkers()
+      }, 0)
+    }
+  }, [blocks, hasActiveDiff, isDiffReady, reapplyDiffMarkers])
 
   // Reconstruct deleted edges when viewing original workflow and filter out invalid edges
   const edgesForDisplay = useMemo(() => {
@@ -253,18 +298,17 @@ const WorkflowContent = React.memo(() => {
 
   // Create diff-aware permissions that disable editing when in diff mode
   const effectivePermissions = useMemo(() => {
-    if (isDiffMode) {
-      // In diff mode, disable all editing regardless of user permissions
+    if (currentWorkflow.isSnapshotView) {
+      // Snapshot view is read-only
       return {
         ...userPermissions,
         canEdit: false,
         canAdmin: false,
-        // Keep canRead true so users can still view content
         canRead: userPermissions.canRead,
       }
     }
     return userPermissions
-  }, [userPermissions, isDiffMode])
+  }, [userPermissions, currentWorkflow.isSnapshotView])
 
   // Workspace permissions - get all users and their permissions for this workspace
   const { permissions: workspacePermissions, error: permissionsError } = useWorkspacePermissions(
@@ -275,6 +319,7 @@ const WorkflowContent = React.memo(() => {
   const {
     collaborativeAddBlock: addBlock,
     collaborativeAddEdge: addEdge,
+    collaborativeRemoveBlock: removeBlock,
     collaborativeRemoveEdge: removeEdge,
     collaborativeUpdateBlockPosition,
     collaborativeUpdateParentId: updateParentId,
@@ -293,7 +338,7 @@ const WorkflowContent = React.memo(() => {
    */
   const connectionLineStyle = useMemo(() => {
     return {
-      stroke: isErrorConnectionDrag ? '#EF4444' : '#434343',
+      stroke: isErrorConnectionDrag ? 'var(--text-error)' : 'var(--surface-12)',
       strokeWidth: 2,
     }
   }, [isErrorConnectionDrag])
@@ -457,6 +502,33 @@ const WorkflowContent = React.memo(() => {
     }
   }, [debouncedAutoLayout, undo, redo])
 
+  /**
+   * Removes all edges connected to a block, skipping individual edge recording for undo/redo.
+   * Used when moving nodes between containers where edges would violate boundary constraints.
+   */
+  const removeEdgesForNode = useCallback(
+    (blockId: string, edgesToRemove: Edge[]): void => {
+      if (edgesToRemove.length === 0) return
+
+      // Skip individual edge recording - parent update will record as batch
+      window.dispatchEvent(new CustomEvent('skip-edge-recording', { detail: { skip: true } }))
+
+      try {
+        edgesToRemove.forEach((edge) => {
+          removeEdge(edge.id)
+        })
+
+        logger.debug('Removed edges for node', {
+          blockId,
+          edgeCount: edgesToRemove.length,
+        })
+      } finally {
+        window.dispatchEvent(new CustomEvent('skip-edge-recording', { detail: { skip: false } }))
+      }
+    },
+    [removeEdge]
+  )
+
   // Listen for explicit remove-from-subflow actions from ActionBar
   useEffect(() => {
     const handleRemoveFromSubflow = (event: Event) => {
@@ -475,18 +547,11 @@ const WorkflowContent = React.memo(() => {
           (e) => e.source === blockId || e.target === blockId
         )
 
-        // Set flag to skip individual edge recording for undo/redo
-        window.dispatchEvent(new CustomEvent('skip-edge-recording', { detail: { skip: true } }))
+        // Remove edges using shared helper
+        removeEdgesForNode(blockId, edgesToRemove)
 
-        // Remove edges first
-        edgesToRemove.forEach((edge) => {
-          removeEdge(edge.id)
-        })
-
-        // Then update parent relationship
+        // Update parent relationship (null = remove from parent)
         updateNodeParent(blockId, null, edgesToRemove)
-
-        window.dispatchEvent(new CustomEvent('skip-edge-recording', { detail: { skip: false } }))
       } catch (err) {
         logger.error('Failed to remove from subflow', { err })
       }
@@ -495,7 +560,7 @@ const WorkflowContent = React.memo(() => {
     window.addEventListener('remove-from-subflow', handleRemoveFromSubflow as EventListener)
     return () =>
       window.removeEventListener('remove-from-subflow', handleRemoveFromSubflow as EventListener)
-  }, [getNodes, updateNodeParent, removeEdge, edgesForDisplay])
+  }, [blocks, edgesForDisplay, removeEdgesForNode, updateNodeParent])
 
   // Handle drops
   const findClosestOutput = useCallback(
@@ -1212,7 +1277,7 @@ const WorkflowContent = React.memo(() => {
     [screenToFlowPosition, isPointInLoopNode, getNodes]
   )
 
-  // Initialize workflow when it exists in registry and isn't active
+  // Initialize workflow when it exists in registry and isn't active or needs hydration
   useEffect(() => {
     let cancelled = false
     const currentId = params.workflowId as string
@@ -1230,8 +1295,16 @@ const WorkflowContent = React.memo(() => {
       return
     }
 
-    if (activeWorkflowId !== currentId) {
-      // Clear diff and set as active
+    // Check if we need to load the workflow state:
+    // 1. Different workflow than currently active
+    // 2. Same workflow but hydration phase is not 'ready' (e.g., after a quick refresh)
+    const needsWorkflowLoad =
+      activeWorkflowId !== currentId ||
+      (activeWorkflowId === currentId &&
+        hydration.phase !== 'ready' &&
+        hydration.phase !== 'state-loading')
+
+    if (needsWorkflowLoad) {
       const { clearDiff } = useWorkflowDiffStore.getState()
       clearDiff()
 
@@ -1866,6 +1939,21 @@ const WorkflowContent = React.memo(() => {
 
       // Update the node's parent relationship
       if (potentialParentId) {
+        // Remove existing edges before moving into container
+        const edgesToRemove = edgesForDisplay.filter(
+          (e) => e.source === node.id || e.target === node.id
+        )
+
+        if (edgesToRemove.length > 0) {
+          removeEdgesForNode(node.id, edgesToRemove)
+
+          logger.info('Removed edges when moving node into subflow', {
+            blockId: node.id,
+            targetParentId: potentialParentId,
+            edgeCount: edgesToRemove.length,
+          })
+        }
+
         // Compute relative position BEFORE updating parent to avoid stale state
         // Account for header (50px), left padding (16px), and top padding (16px)
         const containerAbsPosBefore = getNodeAbsolutePosition(potentialParentId)
@@ -1939,8 +2027,9 @@ const WorkflowContent = React.memo(() => {
         // Skip recording these edges separately since they're part of the parent update
         window.dispatchEvent(new CustomEvent('skip-edge-recording', { detail: { skip: true } }))
 
-        // Moving to a new parent container - pass the edges that will be added
-        updateNodeParent(node.id, potentialParentId, edgesToAdd)
+        // Moving to a new parent container - pass both removed and added edges for undo/redo
+        const affectedEdges = [...edgesToRemove, ...edgesToAdd]
+        updateNodeParent(node.id, potentialParentId, affectedEdges)
 
         // Now add the edges after parent update
         edgesToAdd.forEach((edge) => addEdge(edge))
@@ -1961,6 +2050,8 @@ const WorkflowContent = React.memo(() => {
       addEdge,
       determineSourceHandle,
       blocks,
+      edgesForDisplay,
+      removeEdgesForNode,
       getNodeAbsolutePosition,
       getDragStartPosition,
       setDragStartPosition,
@@ -2056,6 +2147,56 @@ const WorkflowContent = React.memo(() => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedEdgeInfo, removeEdge])
 
+  /**
+   * Handle Delete / Backspace for removing selected blocks.
+   *
+   * This mirrors the behavior of clicking the ActionBar delete button by
+   * invoking the collaborative remove-block helper. The handler is disabled
+   * while focus is inside editable elements so it does not interfere with
+   * text editing.
+   */
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') {
+        return
+      }
+
+      // Ignore when typing/navigating inside editable inputs or editors
+      const activeElement = document.activeElement
+      const isEditableElement =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement?.hasAttribute('contenteditable')
+
+      if (isEditableElement) {
+        return
+      }
+
+      if (!effectivePermissions.canEdit) {
+        return
+      }
+
+      const selectedNodes = getNodes().filter((node) => node.selected)
+      if (selectedNodes.length === 0) {
+        return
+      }
+
+      // Prevent default browser behavior (e.g., page navigation) when we act
+      event.preventDefault()
+
+      try {
+        // For now, mirror edge behavior and delete the primary selected block
+        const primaryNode = selectedNodes[0]
+        removeBlock(primaryNode.id)
+      } catch (err) {
+        logger.error('Failed to delete block via keyboard', { err })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [getNodes, removeBlock, effectivePermissions.canEdit])
+
   // Handle sub-block value updates from custom events
   useEffect(() => {
     const handleSubBlockValueUpdate = (event: CustomEvent) => {
@@ -2084,7 +2225,11 @@ const WorkflowContent = React.memo(() => {
     return (
       <div className='flex h-screen w-full flex-col overflow-hidden'>
         <div className='relative h-full w-full flex-1 transition-all duration-200'>
-          <div className='workflow-container h-full' />
+          <div className='workflow-container flex h-full items-center justify-center'>
+            <div className='flex flex-col items-center gap-3'>
+              <Loader2 className='h-[24px] w-[24px] animate-spin text-muted-foreground' />
+            </div>
+          </div>
         </div>
         <Panel />
         <Terminal />
@@ -2111,19 +2256,19 @@ const WorkflowContent = React.memo(() => {
           onDrop={effectivePermissions.canEdit ? onDrop : undefined}
           onDragOver={effectivePermissions.canEdit ? onDragOver : undefined}
           fitView
-          fitViewOptions={{ padding: 0.6 }}
           onInit={(instance) => {
             requestAnimationFrame(() => {
               requestAnimationFrame(() => {
-                instance.fitView({ padding: 0.3 })
+                instance.fitView(reactFlowFitViewOptions)
               })
             })
           }}
           minZoom={0.1}
           maxZoom={1.3}
           panOnScroll
+          fitViewOptions={reactFlowFitViewOptions} // Not seen due to onInit
           defaultEdgeOptions={defaultEdgeOptions}
-          proOptions={{ hideAttribution: true }}
+          proOptions={reactFlowProOptions}
           connectionLineStyle={connectionLineStyle}
           connectionLineType={ConnectionLineType.SmoothStep}
           onNodeClick={(e, _node) => {
@@ -2174,6 +2319,18 @@ const WorkflowContent = React.memo(() => {
       </div>
 
       <Terminal />
+
+      {oauthModal && (
+        <OAuthRequiredModal
+          isOpen={true}
+          onClose={() => setOauthModal(null)}
+          provider={oauthModal.provider}
+          toolName={oauthModal.providerName}
+          serviceId={oauthModal.serviceId}
+          requiredScopes={oauthModal.requiredScopes}
+          newScopes={oauthModal.newScopes}
+        />
+      )}
     </div>
   )
 })

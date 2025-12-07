@@ -2,9 +2,9 @@ import { memo, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { NodeProps } from 'reactflow'
 import remarkGfm from 'remark-gfm'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/core/utils/cn'
 import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
-import { useBlockCore } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks'
+import { useBlockVisual } from '@/app/workspace/[workspaceId]/w/[workflowId]/hooks'
 import {
   BLOCK_DIMENSIONS,
   useBlockDimensions,
@@ -76,7 +76,7 @@ const NoteMarkdown = memo(function NoteMarkdown({ content }: { content: string }
             return (
               <code
                 {...props}
-                className='whitespace-normal rounded bg-gray-200 px-1 py-0.5 font-mono text-[#F59E0B] text-xs dark:bg-[var(--surface-11)] dark:text-[#F59E0B]'
+                className='whitespace-normal rounded bg-gray-200 px-1 py-0.5 font-mono text-[#F59E0B] text-xs dark:bg-[var(--surface-11)]'
               >
                 {children}
               </code>
@@ -121,9 +121,10 @@ const NoteMarkdown = memo(function NoteMarkdown({ content }: { content: string }
 export const NoteBlock = memo(function NoteBlock({ id, data }: NodeProps<NoteBlockNodeData>) {
   const { type, config, name } = data
 
-  const { activeWorkflowId, isEnabled, isFocused, handleClick, hasRing, ringStyles } = useBlockCore(
-    { blockId: id, data }
-  )
+  const { activeWorkflowId, isEnabled, handleClick, hasRing, ringStyles } = useBlockVisual({
+    blockId: id,
+    data,
+  })
   const storedValues = useSubBlockStore(
     useCallback(
       (state) => {
@@ -196,7 +197,7 @@ export const NoteBlock = memo(function NoteBlock({ id, data }: NodeProps<NoteBlo
           <div className='flex min-w-0 flex-1 items-center gap-[10px]'>
             <div
               className='flex h-[24px] w-[24px] flex-shrink-0 items-center justify-center rounded-[6px]'
-              style={{ backgroundColor: isEnabled ? config.bgColor : 'gray' }}
+              style={{ background: isEnabled ? config.bgColor : 'gray' }}
             >
               <config.icon className='h-[16px] w-[16px] text-white' />
             </div>

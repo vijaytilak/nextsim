@@ -3,7 +3,7 @@ import { member, organization, userStats } from '@sim/db/schema'
 import { eq, inArray } from 'drizzle-orm'
 import { getOrganizationSubscription, getPlanPricing } from '@/lib/billing/core/billing'
 import { getUserUsageLimit } from '@/lib/billing/core/usage'
-import { isBillingEnabled } from '@/lib/environment'
+import { isBillingEnabled } from '@/lib/core/config/environment'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('UsageMonitor')
@@ -115,7 +115,7 @@ export async function checkUsageStatus(userId: string): Promise<UsageData> {
               const orgSub = await getOrganizationSubscription(org.id)
               if (orgSub?.seats) {
                 const { basePrice } = getPlanPricing(orgSub.plan)
-                orgCap = (orgSub.seats || 1) * basePrice
+                orgCap = (orgSub.seats ?? 0) * basePrice
               } else {
                 // If no subscription, use team default
                 const { basePrice } = getPlanPricing('team')

@@ -1,5 +1,5 @@
-import { getEnv, isTruthy } from '@/lib/env'
-import { isHosted } from '@/lib/environment'
+import { getEnv, isTruthy } from '@/lib/core/config/env'
+import { isHosted } from '@/lib/core/config/environment'
 import { createLogger } from '@/lib/logs/console/logger'
 import { anthropicProvider } from '@/providers/anthropic'
 import { azureOpenAIProvider } from '@/providers/azure-openai'
@@ -30,6 +30,7 @@ import { ollamaProvider } from '@/providers/ollama'
 import { openaiProvider } from '@/providers/openai'
 import { openRouterProvider } from '@/providers/openrouter'
 import type { ProviderConfig, ProviderId, ProviderToolConfig } from '@/providers/types'
+import { vllmProvider } from '@/providers/vllm'
 import { xAIProvider } from '@/providers/xai'
 import { useCustomToolsStore } from '@/stores/custom-tools/store'
 import { useProvidersStore } from '@/stores/providers/store'
@@ -86,6 +87,11 @@ export const providers: Record<
     models: getProviderModelsFromDefinitions('groq'),
     modelPatterns: PROVIDER_DEFINITIONS.groq.modelPatterns,
   },
+  vllm: {
+    ...vllmProvider,
+    models: getProviderModelsFromDefinitions('vllm'),
+    modelPatterns: PROVIDER_DEFINITIONS.vllm.modelPatterns,
+  },
   mistral: {
     ...mistralProvider,
     models: getProviderModelsFromDefinitions('mistral'),
@@ -123,6 +129,12 @@ export function updateOllamaProviderModels(models: string[]): void {
   providers.ollama.models = getProviderModelsFromDefinitions('ollama')
 }
 
+export function updateVLLMProviderModels(models: string[]): void {
+  const { updateVLLMModels } = require('@/providers/models')
+  updateVLLMModels(models)
+  providers.vllm.models = getProviderModelsFromDefinitions('vllm')
+}
+
 export async function updateOpenRouterProviderModels(models: string[]): Promise<void> {
   const { updateOpenRouterModels } = await import('@/providers/models')
   updateOpenRouterModels(models)
@@ -131,7 +143,10 @@ export async function updateOpenRouterProviderModels(models: string[]): Promise<
 
 export function getBaseModelProviders(): Record<string, ProviderId> {
   const allProviders = Object.entries(providers)
-    .filter(([providerId]) => providerId !== 'ollama' && providerId !== 'openrouter')
+    .filter(
+      ([providerId]) =>
+        providerId !== 'ollama' && providerId !== 'vllm' && providerId !== 'openrouter'
+    )
     .reduce(
       (map, [providerId, config]) => {
         config.models.forEach((model) => {
@@ -476,7 +491,7 @@ export async function transformBlockTool(
   const userProvidedParams = block.params || {}
 
   // Create LLM schema that excludes user-provided parameters
-  const llmSchema = createLLMToolSchema(toolConfig, userProvidedParams)
+  const llmSchema = await createLLMToolSchema(toolConfig, userProvidedParams)
 
   // Return formatted tool config
   return {
@@ -604,7 +619,7 @@ export function getHostedModels(): string[] {
  */
 export function shouldBillModelUsage(model: string): boolean {
   const hostedModels = getHostedModels()
-  return hostedModels.includes(model)
+  return hostedModels.some((hostedModel) => model.toLowerCase() === hostedModel.toLowerCase())
 }
 
 /**
@@ -622,24 +637,28 @@ export function getApiKey(provider: string, model: string, userProvidedKey?: str
     return 'empty' // Ollama uses 'empty' as a placeholder API key
   }
 
-  // Use server key rotation for all OpenAI models and Anthropic's Claude models on the hosted platform
+  // Use server key rotation for all OpenAI models, Anthropic's Claude models, and Google's Gemini models on the hosted platform
   const isOpenAIModel = provider === 'openai'
   const isClaudeModel = provider === 'anthropic'
+  const isGeminiModel = provider === 'google'
 
-  if (isHosted && (isOpenAIModel || isClaudeModel)) {
-    try {
-      // Import the key rotation function
-      const { getRotatingApiKey } = require('@/lib/utils')
-      const serverKey = getRotatingApiKey(provider)
-      return serverKey
-    } catch (_error) {
-      // If server key fails and we have a user key, fallback to that
-      if (hasUserKey) {
-        return userProvidedKey!
+  if (isHosted && (isOpenAIModel || isClaudeModel || isGeminiModel)) {
+    // Only use server key if model is explicitly in our hosted list
+    const hostedModels = getHostedModels()
+    const isModelHosted = hostedModels.some((m) => m.toLowerCase() === model.toLowerCase())
+
+    if (isModelHosted) {
+      try {
+        const { getRotatingApiKey } = require('@/lib/core/config/api-keys')
+        const serverKey = getRotatingApiKey(isGeminiModel ? 'gemini' : provider)
+        return serverKey
+      } catch (_error) {
+        if (hasUserKey) {
+          return userProvidedKey!
+        }
+
+        throw new Error(`No API key available for ${provider} ${model}`)
       }
-
-      // Otherwise, throw an error
-      throw new Error(`No API key available for ${provider} ${model}`)
     }
   }
 

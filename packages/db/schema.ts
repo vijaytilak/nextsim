@@ -84,6 +84,10 @@ export const account = pgTable(
   },
   (table) => ({
     userIdIdx: index('account_user_id_idx').on(table.userId),
+    accountProviderIdx: index('idx_account_on_account_id_provider_id').on(
+      table.accountId,
+      table.providerId
+    ),
   })
 )
 
@@ -188,7 +192,6 @@ export const workflowBlocks = pgTable(
   },
   (table) => ({
     workflowIdIdx: index('workflow_blocks_workflow_id_idx').on(table.workflowId),
-    workflowTypeIdx: index('workflow_blocks_workflow_type_idx').on(table.workflowId, table.type),
   })
 )
 
@@ -300,7 +303,6 @@ export const workflowExecutionLogs = pgTable(
   },
   (table) => ({
     workflowIdIdx: index('workflow_execution_logs_workflow_id_idx').on(table.workflowId),
-    executionIdIdx: index('workflow_execution_logs_execution_id_idx').on(table.executionId),
     stateSnapshotIdIdx: index('workflow_execution_logs_state_snapshot_id_idx').on(
       table.stateSnapshotId
     ),
@@ -406,8 +408,6 @@ export const settings = pgTable('settings', {
   // General settings
   theme: text('theme').notNull().default('system'),
   autoConnect: boolean('auto_connect').notNull().default(true),
-  autoPan: boolean('auto_pan').notNull().default(true),
-  consoleExpandedByDefault: boolean('console_expanded_by_default').notNull().default(true),
 
   // Privacy settings
   telemetryEnabled: boolean('telemetry_enabled').notNull().default(true),
@@ -421,7 +421,6 @@ export const settings = pgTable('settings', {
     .default(true),
 
   // UI preferences
-  showFloatingControls: boolean('show_floating_controls').notNull().default(true),
   showTrainingControls: boolean('show_training_controls').notNull().default(false),
   superUserModeEnabled: boolean('super_user_mode_enabled').notNull().default(true),
 
@@ -430,6 +429,9 @@ export const settings = pgTable('settings', {
 
   // Copilot preferences - maps model_id to enabled/disabled boolean
   copilotEnabledModels: jsonb('copilot_enabled_models').notNull().default('{}'),
+
+  // Copilot auto-allowed integration tools - array of tool IDs that can run without confirmation
+  copilotAutoAllowedTools: jsonb('copilot_auto_allowed_tools').notNull().default('[]'),
 
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -476,6 +478,8 @@ export const webhook = pgTable(
     provider: text('provider'), // e.g., "whatsapp", "github", etc.
     providerConfig: json('provider_config'), // Store provider-specific configuration
     isActive: boolean('is_active').notNull().default(true),
+    failedCount: integer('failed_count').default(0), // Track consecutive failures
+    lastFailedAt: timestamp('last_failed_at'), // When the webhook last failed
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -483,23 +487,34 @@ export const webhook = pgTable(
     return {
       // Ensure webhook paths are unique
       pathIdx: uniqueIndex('path_idx').on(table.path),
+      // Optimize queries for webhooks by workflow and block
+      workflowBlockIdx: index('idx_webhook_on_workflow_id_block_id').on(
+        table.workflowId,
+        table.blockId
+      ),
     }
   }
 )
 
-export const workflowLogWebhook = pgTable(
-  'workflow_log_webhook',
+export const notificationTypeEnum = pgEnum('notification_type', ['webhook', 'email', 'slack'])
+
+export const notificationDeliveryStatusEnum = pgEnum('notification_delivery_status', [
+  'pending',
+  'in_progress',
+  'success',
+  'failed',
+])
+
+export const workspaceNotificationSubscription = pgTable(
+  'workspace_notification_subscription',
   {
     id: text('id').primaryKey(),
-    workflowId: text('workflow_id')
+    workspaceId: text('workspace_id')
       .notNull()
-      .references(() => workflow.id, { onDelete: 'cascade' }),
-    url: text('url').notNull(),
-    secret: text('secret'),
-    includeFinalOutput: boolean('include_final_output').notNull().default(false),
-    includeTraceSpans: boolean('include_trace_spans').notNull().default(false),
-    includeRateLimits: boolean('include_rate_limits').notNull().default(false),
-    includeUsageData: boolean('include_usage_data').notNull().default(false),
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    notificationType: notificationTypeEnum('notification_type').notNull(),
+    workflowIds: text('workflow_ids').array().notNull().default(sql`'{}'::text[]`),
+    allWorkflows: boolean('all_workflows').notNull().default(false),
     levelFilter: text('level_filter')
       .array()
       .notNull()
@@ -508,35 +523,46 @@ export const workflowLogWebhook = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY['api', 'webhook', 'schedule', 'manual', 'chat']::text[]`),
+    includeFinalOutput: boolean('include_final_output').notNull().default(false),
+    includeTraceSpans: boolean('include_trace_spans').notNull().default(false),
+    includeRateLimits: boolean('include_rate_limits').notNull().default(false),
+    includeUsageData: boolean('include_usage_data').notNull().default(false),
+
+    // Channel-specific configuration
+    webhookConfig: jsonb('webhook_config'),
+    emailRecipients: text('email_recipients').array(),
+    slackConfig: jsonb('slack_config'),
+
+    // Alert rule configuration (if null, sends on every execution)
+    alertConfig: jsonb('alert_config'),
+    lastAlertAt: timestamp('last_alert_at'),
+
     active: boolean('active').notNull().default(true),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (table) => ({
-    workflowIdIdx: index('workflow_log_webhook_workflow_id_idx').on(table.workflowId),
-    activeIdx: index('workflow_log_webhook_active_idx').on(table.active),
+    workspaceIdIdx: index('workspace_notification_workspace_id_idx').on(table.workspaceId),
+    activeIdx: index('workspace_notification_active_idx').on(table.active),
+    typeIdx: index('workspace_notification_type_idx').on(table.notificationType),
   })
 )
 
-export const webhookDeliveryStatusEnum = pgEnum('webhook_delivery_status', [
-  'pending',
-  'in_progress',
-  'success',
-  'failed',
-])
-
-export const workflowLogWebhookDelivery = pgTable(
-  'workflow_log_webhook_delivery',
+export const workspaceNotificationDelivery = pgTable(
+  'workspace_notification_delivery',
   {
     id: text('id').primaryKey(),
     subscriptionId: text('subscription_id')
       .notNull()
-      .references(() => workflowLogWebhook.id, { onDelete: 'cascade' }),
+      .references(() => workspaceNotificationSubscription.id, { onDelete: 'cascade' }),
     workflowId: text('workflow_id')
       .notNull()
       .references(() => workflow.id, { onDelete: 'cascade' }),
     executionId: text('execution_id').notNull(),
-    status: webhookDeliveryStatusEnum('status').notNull().default('pending'),
+    status: notificationDeliveryStatusEnum('status').notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),
     lastAttemptAt: timestamp('last_attempt_at'),
     nextAttemptAt: timestamp('next_attempt_at'),
@@ -547,12 +573,14 @@ export const workflowLogWebhookDelivery = pgTable(
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (table) => ({
-    subscriptionIdIdx: index('workflow_log_webhook_delivery_subscription_id_idx').on(
+    subscriptionIdIdx: index('workspace_notification_delivery_subscription_id_idx').on(
       table.subscriptionId
     ),
-    executionIdIdx: index('workflow_log_webhook_delivery_execution_id_idx').on(table.executionId),
-    statusIdx: index('workflow_log_webhook_delivery_status_idx').on(table.status),
-    nextAttemptIdx: index('workflow_log_webhook_delivery_next_attempt_idx').on(table.nextAttemptAt),
+    executionIdIdx: index('workspace_notification_delivery_execution_id_idx').on(table.executionId),
+    statusIdx: index('workspace_notification_delivery_status_idx').on(table.status),
+    nextAttemptIdx: index('workspace_notification_delivery_next_attempt_idx').on(
+      table.nextAttemptAt
+    ),
   })
 )
 
@@ -564,17 +592,16 @@ export const apiKey = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }), // Only set for workspace keys
-    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }), // Who created the workspace key
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     key: text('key').notNull().unique(),
-    type: text('type').notNull().default('personal'), // 'personal' or 'workspace'
+    type: text('type').notNull().default('personal'),
     lastUsed: timestamp('last_used'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
     expiresAt: timestamp('expires_at'),
   },
   (table) => ({
-    // Ensure workspace keys have a workspace_id and personal keys don't
     workspaceTypeCheck: check(
       'workspace_type_check',
       sql`(type = 'workspace' AND workspace_id IS NOT NULL) OR (type = 'personal' AND workspace_id IS NULL)`
@@ -647,6 +674,10 @@ export const customTools = pgTable(
   },
   (table) => ({
     workspaceIdIdx: index('custom_tools_workspace_id_idx').on(table.workspaceId),
+    workspaceTitleUnique: uniqueIndex('custom_tools_workspace_title_unique').on(
+      table.workspaceId,
+      table.title
+    ),
   })
 )
 
@@ -732,7 +763,8 @@ export const organization = pgTable('organization', {
   logo: text('logo'),
   metadata: json('metadata'),
   orgUsageLimit: decimal('org_usage_limit'),
-  storageUsedBytes: bigint('storage_used_bytes', { mode: 'number' }).notNull().default(0), // Storage tracking for team/enterprise
+  storageUsedBytes: bigint('storage_used_bytes', { mode: 'number' }).notNull().default(0),
+  departedMemberUsage: decimal('departed_member_usage').notNull().default('0'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -1024,12 +1056,10 @@ export const document = pgTable(
     uploadedAt: timestamp('uploaded_at').notNull().defaultNow(),
   },
   (table) => ({
-    // Primary access pattern - documents by knowledge base
+    // Primary access pattern - filter by knowledge base
     knowledgeBaseIdIdx: index('doc_kb_id_idx').on(table.knowledgeBaseId),
-    // Search by filename (for search functionality)
+    // Search by filename
     filenameIdx: index('doc_filename_idx').on(table.filename),
-    // Order by upload date (for listing documents)
-    kbUploadedAtIdx: index('doc_kb_uploaded_at_idx').on(table.knowledgeBaseId, table.uploadedAt),
     // Processing status filtering
     processingStatusIdx: index('doc_processing_status_idx').on(
       table.knowledgeBaseId,
@@ -1250,6 +1280,8 @@ export const copilotChats = pgTable(
     model: text('model').notNull().default('claude-3-7-sonnet-latest'),
     conversationId: text('conversation_id'),
     previewYaml: text('preview_yaml'), // YAML content for pending workflow preview
+    planArtifact: text('plan_artifact'), // Plan/design document artifact for the chat
+    config: jsonb('config'), // JSON config storing model and mode settings { model, mode }
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -1321,6 +1353,7 @@ export const templateCreators = pgTable(
     name: text('name').notNull(),
     profileImageUrl: text('profile_image_url'),
     details: jsonb('details'),
+    verified: boolean('verified').notNull().default(false),
     createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -1456,7 +1489,6 @@ export const workflowDeploymentVersion = pgTable(
     createdBy: text('created_by'),
   },
   (table) => ({
-    workflowIdIdx: index('workflow_deployment_version_workflow_id_idx').on(table.workflowId),
     workflowVersionUnique: uniqueIndex('workflow_deployment_version_workflow_version_unique').on(
       table.workflowId,
       table.version

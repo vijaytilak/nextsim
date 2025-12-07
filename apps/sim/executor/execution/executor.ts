@@ -1,5 +1,5 @@
 import { createLogger } from '@/lib/logs/console/logger'
-import { StartBlockPath } from '@/lib/workflows/triggers'
+import { StartBlockPath } from '@/lib/workflows/triggers/triggers'
 import type { BlockOutput } from '@/blocks/types'
 import { DAGBuilder } from '@/executor/dag/builder'
 import { BlockExecutor } from '@/executor/execution/block-executor'
@@ -121,6 +121,7 @@ export class DAGExecutor {
       blockStates: state.getBlockStates(),
       blockLogs: snapshotState?.blockLogs ?? [],
       metadata: {
+        ...this.contextExtensions.metadata,
         startTime: new Date().toISOString(),
         duration: 0,
         useDraftState: this.contextExtensions.isDeployedContext !== true,
@@ -250,7 +251,6 @@ export class DAGExecutor {
     const blockOutput = buildStartBlockOutput({
       resolution: startResolution,
       workflowInput: this.workflowInput,
-      isDeployedExecution: this.contextExtensions?.isDeployedContext === true,
     })
 
     state.setBlockState(startResolution.block.id, {

@@ -5,7 +5,8 @@
 import { db } from '@sim/db'
 import { mcpServers } from '@sim/db/schema'
 import { and, eq, isNull } from 'drizzle-orm'
-import { isTest } from '@/lib/environment'
+import { isTest } from '@/lib/core/config/environment'
+import { generateRequestId } from '@/lib/core/utils/request'
 import { getEffectiveDecryptedEnv } from '@/lib/environment/utils'
 import { createLogger } from '@/lib/logs/console/logger'
 import { McpClient } from '@/lib/mcp/client'
@@ -18,7 +19,6 @@ import type {
   McpTransport,
 } from '@/lib/mcp/types'
 import { MCP_CONSTANTS } from '@/lib/mcp/utils'
-import { generateRequestId } from '@/lib/utils'
 
 const logger = createLogger('McpService')
 
@@ -42,8 +42,8 @@ interface CacheStats {
 
 class McpService {
   private toolCache = new Map<string, ToolCache>()
-  private readonly cacheTimeout = MCP_CONSTANTS.CACHE_TIMEOUT
-  private readonly maxCacheSize = 1000
+  private readonly cacheTimeout = MCP_CONSTANTS.CACHE_TIMEOUT // 30 seconds
+  private readonly maxCacheSize = MCP_CONSTANTS.MAX_CACHE_SIZE // 1000
   private cleanupInterval: NodeJS.Timeout | null = null
   private cacheHits = 0
   private cacheMisses = 0
@@ -306,7 +306,7 @@ class McpService {
   }
 
   /**
-   * Create and connect to an MCP client with security policy
+   * Create and connect to an MCP client
    */
   private async createClient(config: McpServerConfig): Promise<McpClient> {
     const securityPolicy = {
@@ -332,33 +332,25 @@ class McpService {
   ): Promise<McpToolResult> {
     const requestId = generateRequestId()
 
+    logger.info(
+      `[${requestId}] Executing MCP tool ${toolCall.name} on server ${serverId} for user ${userId}`
+    )
+
+    const config = await this.getServerConfig(serverId, workspaceId)
+    if (!config) {
+      throw new Error(`Server ${serverId} not found or not accessible`)
+    }
+
+    const resolvedConfig = await this.resolveConfigEnvVars(config, userId, workspaceId)
+
+    const client = await this.createClient(resolvedConfig)
+
     try {
-      logger.info(
-        `[${requestId}] Executing MCP tool ${toolCall.name} on server ${serverId} for user ${userId}`
-      )
-
-      const config = await this.getServerConfig(serverId, workspaceId)
-      if (!config) {
-        throw new Error(`Server ${serverId} not found or not accessible`)
-      }
-
-      const resolvedConfig = await this.resolveConfigEnvVars(config, userId, workspaceId)
-
-      const client = await this.createClient(resolvedConfig)
-
-      try {
-        const result = await client.callTool(toolCall)
-        logger.info(`[${requestId}] Successfully executed tool ${toolCall.name}`)
-        return result
-      } finally {
-        await client.disconnect()
-      }
-    } catch (error) {
-      logger.error(
-        `[${requestId}] Failed to execute tool ${toolCall.name} on server ${serverId}:`,
-        error
-      )
-      throw error
+      const result = await client.callTool(toolCall)
+      logger.info(`[${requestId}] Successfully executed tool ${toolCall.name}`)
+      return result
+    } finally {
+      await client.disconnect()
     }
   }
 
@@ -409,10 +401,12 @@ class McpService {
         })
       )
 
+      let failedCount = 0
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
           allTools.push(...result.value)
         } else {
+          failedCount++
           logger.warn(
             `[${requestId}] Failed to discover tools from server ${servers[index].name}:`,
             result.reason
@@ -420,10 +414,16 @@ class McpService {
         }
       })
 
-      this.setCacheEntry(cacheKey, allTools)
+      if (failedCount === 0) {
+        this.setCacheEntry(cacheKey, allTools)
+      } else {
+        logger.warn(
+          `[${requestId}] Skipping cache due to ${failedCount} failed server(s) - will retry on next request`
+        )
+      }
 
       logger.info(
-        `[${requestId}] Discovered ${allTools.length} tools from ${servers.length} servers`
+        `[${requestId}] Discovered ${allTools.length} tools from ${servers.length - failedCount}/${servers.length} servers`
       )
       return allTools
     } catch (error) {
@@ -442,28 +442,23 @@ class McpService {
   ): Promise<McpTool[]> {
     const requestId = generateRequestId()
 
+    logger.info(`[${requestId}] Discovering tools from server ${serverId} for user ${userId}`)
+
+    const config = await this.getServerConfig(serverId, workspaceId)
+    if (!config) {
+      throw new Error(`Server ${serverId} not found or not accessible`)
+    }
+
+    const resolvedConfig = await this.resolveConfigEnvVars(config, userId, workspaceId)
+
+    const client = await this.createClient(resolvedConfig)
+
     try {
-      logger.info(`[${requestId}] Discovering tools from server ${serverId} for user ${userId}`)
-
-      const config = await this.getServerConfig(serverId, workspaceId)
-      if (!config) {
-        throw new Error(`Server ${serverId} not found or not accessible`)
-      }
-
-      const resolvedConfig = await this.resolveConfigEnvVars(config, userId, workspaceId)
-
-      const client = await this.createClient(resolvedConfig)
-
-      try {
-        const tools = await client.listTools()
-        logger.info(`[${requestId}] Discovered ${tools.length} tools from server ${config.name}`)
-        return tools
-      } finally {
-        await client.disconnect()
-      }
-    } catch (error) {
-      logger.error(`[${requestId}] Failed to discover tools from server ${serverId}:`, error)
-      throw error
+      const tools = await client.listTools()
+      logger.info(`[${requestId}] Discovered ${tools.length} tools from server ${config.name}`)
+      return tools
+    } finally {
+      await client.disconnect()
     }
   }
 

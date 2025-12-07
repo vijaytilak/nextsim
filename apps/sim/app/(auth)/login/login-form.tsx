@@ -14,16 +14,16 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { client } from '@/lib/auth-client'
-import { quickValidateEmail } from '@/lib/email/validation'
-import { getEnv, isFalsy, isTruthy } from '@/lib/env'
+import { client } from '@/lib/auth/auth-client'
+import { getEnv, isFalsy, isTruthy } from '@/lib/core/config/env'
+import { cn } from '@/lib/core/utils/cn'
+import { getBaseUrl } from '@/lib/core/utils/urls'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getBaseUrl } from '@/lib/urls/utils'
-import { cn } from '@/lib/utils'
+import { quickValidateEmail } from '@/lib/messaging/email/validation'
+import { inter } from '@/app/_styles/fonts/inter/inter'
+import { soehne } from '@/app/_styles/fonts/soehne/soehne'
 import { SocialLoginButtons } from '@/app/(auth)/components/social-login-buttons'
 import { SSOLoginButton } from '@/app/(auth)/components/sso-login-button'
-import { inter } from '@/app/fonts/inter/inter'
-import { soehne } from '@/app/fonts/soehne/soehne'
 
 const logger = createLogger('LoginForm')
 

@@ -7,7 +7,7 @@ import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-json'
 import { CopyButton } from '@/components/ui/copy-button'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/core/utils/cn'
 import LineChart, {
   type LineChartPoint,
 } from '@/app/workspace/[workspaceId]/logs/components/dashboard/line-chart'
@@ -287,7 +287,7 @@ export function WorkflowDetails({
                   <LineChart
                     data={details.errorRates}
                     label='Error Rate'
-                    color='#ef4444'
+                    color='var(--text-error)'
                     unit='%'
                   />
                   {hasDuration && (
@@ -467,12 +467,12 @@ export function WorkflowDetails({
                                   <div
                                     className='h-[6px] w-[6px] rounded-[2px]'
                                     style={{
-                                      backgroundColor: isError ? '#EF4444' : '#B7B7B7',
+                                      backgroundColor: isError ? 'var(--text-error)' : '#B7B7B7',
                                     }}
                                   />
                                   <span
                                     className='font-medium text-[11.5px]'
-                                    style={{ color: isError ? '#EF4444' : '#B7B7B7' }}
+                                    style={{ color: isError ? 'var(--text-error)' : '#B7B7B7' }}
                                   >
                                     {statusLabel}
                                   </span>

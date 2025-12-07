@@ -16,9 +16,9 @@ import {
 } from '@/components/emcn'
 import { createLogger } from '@/lib/logs/console/logger'
 import { useUserPermissionsContext } from '@/app/workspace/[workspaceId]/providers/workspace-permissions-provider'
-import { ContextMenu } from '../workflow-list/components/context-menu/context-menu'
-import { DeleteModal } from '../workflow-list/components/delete-modal/delete-modal'
-import { InviteModal } from './components/invite-modal/invite-modal'
+import { ContextMenu } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workflow-list/components/context-menu/context-menu'
+import { DeleteModal } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workflow-list/components/delete-modal/delete-modal'
+import { InviteModal } from '@/app/workspace/[workspaceId]/w/components/sidebar/components-new/workspace-header/components/invite-modal/invite-modal'
 
 const logger = createLogger('WorkspaceHeader')
 
@@ -359,7 +359,7 @@ export function WorkspaceHeader({
                   {workspaces.map((workspace, index) => (
                     <div key={workspace.id} className={index > 0 ? 'mt-[2px]' : ''}>
                       {editingWorkspaceId === workspace.id ? (
-                        <div className='flex h-[25px] items-center gap-[8px] rounded-[6px] bg-[var(--surface-9)] px-[6px] dark:bg-[var(--surface-9)]'>
+                        <div className='flex h-[25px] items-center gap-[8px] rounded-[6px] bg-[var(--surface-9)] px-[6px]'>
                           <input
                             ref={listRenameInputRef}
                             value={editingName}
@@ -389,7 +389,7 @@ export function WorkspaceHeader({
                                 setIsListRenaming(false)
                               }
                             }}
-                            className='w-full border-0 bg-transparent p-0 font-base text-[12px] text-[var(--text-primary)] outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 dark:text-[var(--text-primary)]'
+                            className='w-full border-0 bg-transparent p-0 font-base text-[12px] text-[var(--text-primary)] outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0'
                             maxLength={100}
                             autoComplete='off'
                             autoCorrect='off'
@@ -445,6 +445,10 @@ export function WorkspaceHeader({
         showRename={true}
         showDuplicate={true}
         showExport={true}
+        disableRename={!userPermissions.canEdit}
+        disableDuplicate={!userPermissions.canEdit}
+        disableExport={!userPermissions.canAdmin}
+        disableDelete={!userPermissions.canAdmin}
       />
 
       {/* Invite Modal */}

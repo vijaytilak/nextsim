@@ -1,16 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import { generateRequestId } from '@/lib/core/utils/request'
 import { createLogger } from '@/lib/logs/console/logger'
-import { generateRequestId } from '@/lib/utils'
 import {
-  checkRateLimits,
-  checkUsageLimits,
+  checkWebhookPreprocessing,
   findWebhookAndWorkflow,
   handleProviderChallenges,
   parseWebhookBody,
   queueWebhookExecution,
   verifyProviderAuth,
 } from '@/lib/webhooks/processor'
-import { blockExistsInDeployment } from '@/lib/workflows/db-helpers'
+import { blockExistsInDeployment } from '@/lib/workflows/persistence/utils'
 
 const logger = createLogger('WebhookTriggerAPI')
 
@@ -124,14 +123,34 @@ export async function POST(
     return authError
   }
 
-  const rateLimitError = await checkRateLimits(foundWorkflow, foundWebhook, requestId)
-  if (rateLimitError) {
-    return rateLimitError
-  }
+  let preprocessError: NextResponse | null = null
+  try {
+    preprocessError = await checkWebhookPreprocessing(foundWorkflow, foundWebhook, requestId)
+    if (preprocessError) {
+      return preprocessError
+    }
+  } catch (error) {
+    logger.error(`[${requestId}] Unexpected error during webhook preprocessing`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      webhookId: foundWebhook.id,
+      workflowId: foundWorkflow.id,
+    })
 
-  const usageLimitError = await checkUsageLimits(foundWorkflow, foundWebhook, requestId, false)
-  if (usageLimitError) {
-    return usageLimitError
+    if (foundWebhook.provider === 'microsoft-teams') {
+      return NextResponse.json(
+        {
+          type: 'message',
+          text: 'An unexpected error occurred during preprocessing',
+        },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json(
+      { error: 'An unexpected error occurred during preprocessing' },
+      { status: 500 }
+    )
   }
 
   if (foundWebhook.blockId) {

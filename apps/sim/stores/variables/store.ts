@@ -2,24 +2,24 @@ import { v4 as uuidv4 } from 'uuid'
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import { createLogger } from '@/lib/logs/console/logger'
-import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
-import { useSubBlockStore } from '@/stores/workflows/subblock/store'
 import type {
   Variable,
   VariablesDimensions,
   VariablesPosition,
   VariablesStore,
   VariableType,
-} from './types'
+} from '@/stores/variables/types'
+import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
+import { useSubBlockStore } from '@/stores/workflows/subblock/store'
 
 const logger = createLogger('VariablesModalStore')
 
 /**
  * Floating variables modal default dimensions.
- * Matches the chat modal baseline for visual consistency.
+ * Slightly larger than the chat modal for more comfortable editing.
  */
-const DEFAULT_WIDTH = 250
-const DEFAULT_HEIGHT = 286
+const DEFAULT_WIDTH = 320
+const DEFAULT_HEIGHT = 320
 
 /**
  * Minimum and maximum modal dimensions.

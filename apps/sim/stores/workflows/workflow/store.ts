@@ -2,8 +2,8 @@ import type { Edge } from 'reactflow'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getBlockOutputs } from '@/lib/workflows/block-outputs'
-import { TriggerUtils } from '@/lib/workflows/triggers'
+import { getBlockOutputs } from '@/lib/workflows/blocks/block-outputs'
+import { TriggerUtils } from '@/lib/workflows/triggers/triggers'
 import { getBlock } from '@/blocks'
 import type { SubBlockConfig } from '@/blocks/types'
 import { isAnnotationOnlyBlock } from '@/executor/consts'
@@ -521,6 +521,43 @@ export const useWorkflowStore = create<WorkflowStore>()(
           deploymentStatuses: state.deploymentStatuses,
           needsRedeployment: state.needsRedeployment,
         }
+      },
+      replaceWorkflowState: (
+        workflowState: WorkflowState,
+        options?: { updateLastSaved?: boolean }
+      ) => {
+        set((state) => {
+          const nextBlocks = workflowState.blocks || {}
+          const nextEdges = workflowState.edges || []
+          const nextLoops =
+            Object.keys(workflowState.loops || {}).length > 0
+              ? workflowState.loops
+              : generateLoopBlocks(nextBlocks)
+          const nextParallels =
+            Object.keys(workflowState.parallels || {}).length > 0
+              ? workflowState.parallels
+              : generateParallelBlocks(nextBlocks)
+
+          return {
+            ...state,
+            blocks: nextBlocks,
+            edges: nextEdges,
+            loops: nextLoops,
+            parallels: nextParallels,
+            isDeployed:
+              workflowState.isDeployed !== undefined ? workflowState.isDeployed : state.isDeployed,
+            deployedAt: workflowState.deployedAt ?? state.deployedAt,
+            deploymentStatuses: workflowState.deploymentStatuses || state.deploymentStatuses,
+            needsRedeployment:
+              workflowState.needsRedeployment !== undefined
+                ? workflowState.needsRedeployment
+                : state.needsRedeployment,
+            lastSaved:
+              options?.updateLastSaved === true
+                ? Date.now()
+                : (workflowState.lastSaved ?? state.lastSaved),
+          }
+        })
       },
 
       toggleBlockEnabled: (id: string) => {

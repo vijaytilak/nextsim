@@ -1,11 +1,11 @@
-import { fetchJson, fetchOAuthToken } from './helpers'
+import { fetchJson, fetchOAuthToken } from '@/hooks/selectors/helpers'
 import type {
   SelectorContext,
   SelectorDefinition,
   SelectorKey,
   SelectorOption,
   SelectorQueryArgs,
-} from './types'
+} from '@/hooks/selectors/types'
 
 const SELECTOR_STALE = 60 * 1000
 
@@ -135,6 +135,52 @@ const registry: Record<SelectorKey, SelectorDefinition> = {
       return (data.teams || []).map((team) => ({
         id: team.id,
         label: team.displayName,
+      }))
+    },
+  },
+  'microsoft.chats': {
+    key: 'microsoft.chats',
+    staleTime: SELECTOR_STALE,
+    getQueryKey: ({ context }: SelectorQueryArgs) => [
+      'selectors',
+      'microsoft.chats',
+      context.credentialId ?? 'none',
+    ],
+    enabled: ({ context }) => Boolean(context.credentialId),
+    fetchList: async ({ context }: SelectorQueryArgs) => {
+      const body = JSON.stringify({ credential: context.credentialId })
+      const data = await fetchJson<{ chats: { id: string; displayName: string }[] }>(
+        '/api/tools/microsoft-teams/chats',
+        { method: 'POST', body }
+      )
+      return (data.chats || []).map((chat) => ({
+        id: chat.id,
+        label: chat.displayName,
+      }))
+    },
+  },
+  'microsoft.channels': {
+    key: 'microsoft.channels',
+    staleTime: SELECTOR_STALE,
+    getQueryKey: ({ context }: SelectorQueryArgs) => [
+      'selectors',
+      'microsoft.channels',
+      context.credentialId ?? 'none',
+      context.teamId ?? 'none',
+    ],
+    enabled: ({ context }) => Boolean(context.credentialId && context.teamId),
+    fetchList: async ({ context }: SelectorQueryArgs) => {
+      const body = JSON.stringify({
+        credential: context.credentialId,
+        teamId: context.teamId,
+      })
+      const data = await fetchJson<{ channels: { id: string; displayName: string }[] }>(
+        '/api/tools/microsoft-teams/channels',
+        { method: 'POST', body }
+      )
+      return (data.channels || []).map((channel) => ({
+        id: channel.id,
+        label: channel.displayName,
       }))
     },
   },

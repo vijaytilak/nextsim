@@ -1,5 +1,5 @@
 import * as Icons from '@/components/icons'
-import { inter } from '@/app/fonts/inter/inter'
+import { inter } from '@/app/_styles/fonts/inter/inter'
 
 const modelProviderIcons = [
   { icon: Icons.OpenAIIcon, label: 'OpenAI' },
@@ -13,6 +13,7 @@ const modelProviderIcons = [
   { icon: Icons.OllamaIcon, label: 'Ollama' },
   { icon: Icons.DeepseekIcon, label: 'Deepseek' },
   { icon: Icons.ElevenLabsIcon, label: 'ElevenLabs' },
+  { icon: Icons.VllmIcon, label: 'vLLM' },
 ]
 
 const communicationIcons = [
@@ -88,7 +89,6 @@ interface TickerRowProps {
 }
 
 function TickerRow({ direction, offset, showOdd, icons }: TickerRowProps) {
-  // Create multiple copies of the icons array for seamless looping
   const extendedIcons = [...icons, ...icons, ...icons, ...icons]
 
   return (

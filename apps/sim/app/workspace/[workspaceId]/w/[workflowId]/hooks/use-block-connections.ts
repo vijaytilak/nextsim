@@ -1,8 +1,8 @@
-import { shallow } from 'zustand/shallow'
-import { BlockPathCalculator } from '@/lib/block-path-calculator'
+import { useShallow } from 'zustand/react/shallow'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getBlockOutputs } from '@/lib/workflows/block-outputs'
-import { TriggerUtils } from '@/lib/workflows/triggers'
+import { getBlockOutputs } from '@/lib/workflows/blocks/block-outputs'
+import { BlockPathCalculator } from '@/lib/workflows/blocks/block-path-calculator'
+import { TriggerUtils } from '@/lib/workflows/triggers/triggers'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 import { useSubBlockStore } from '@/stores/workflows/subblock/store'
 import { useWorkflowStore } from '@/stores/workflows/workflow/store'
@@ -88,11 +88,10 @@ function extractFieldsFromSchema(schema: any): Field[] {
 
 export function useBlockConnections(blockId: string) {
   const { edges, blocks } = useWorkflowStore(
-    (state) => ({
+    useShallow((state) => ({
       edges: state.edges,
       blocks: state.blocks,
-    }),
-    shallow
+    }))
   )
 
   const workflowId = useWorkflowRegistry((state) => state.activeWorkflowId)

@@ -32,8 +32,8 @@ import {
   StripeIcon,
   SupabaseIcon,
 } from '@/components/icons'
-import { LandingPromptStorage } from '@/lib/browser-storage'
-import { soehne } from '@/app/fonts/soehne/soehne'
+import { LandingPromptStorage } from '@/lib/core/utils/browser-storage'
+import { soehne } from '@/app/_styles/fonts/soehne/soehne'
 import {
   CARD_WIDTH,
   IconButton,
@@ -41,7 +41,7 @@ import {
   type LandingGroupData,
   type LandingManualBlock,
   type LandingViewportApi,
-} from './components'
+} from '@/app/(landing)/components/hero/components'
 
 /**
  * Service-specific template messages for the hero input

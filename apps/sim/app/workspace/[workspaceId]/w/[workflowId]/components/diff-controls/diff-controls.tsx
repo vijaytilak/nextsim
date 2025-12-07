@@ -1,8 +1,10 @@
 import { memo, useCallback } from 'react'
+import clsx from 'clsx'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/emcn'
 import { createLogger } from '@/lib/logs/console/logger'
-import { useCopilotStore } from '@/stores/panel-new/copilot/store'
+import { useCopilotStore } from '@/stores/panel/copilot/store'
+import { useTerminalStore } from '@/stores/terminal'
 import { useWorkflowDiffStore } from '@/stores/workflow-diff'
 import { useWorkflowRegistry } from '@/stores/workflows/registry/store'
 import { mergeSubblockState } from '@/stores/workflows/utils'
@@ -11,21 +13,30 @@ import { useWorkflowStore } from '@/stores/workflows/workflow/store'
 const logger = createLogger('DiffControls')
 
 export const DiffControls = memo(function DiffControls() {
+  const isTerminalResizing = useTerminalStore((state) => state.isResizing)
   // Optimized: Single diff store subscription
-  const { isShowingDiff, isDiffReady, diffWorkflow, toggleDiffView, acceptChanges, rejectChanges } =
-    useWorkflowDiffStore(
-      useCallback(
-        (state) => ({
-          isShowingDiff: state.isShowingDiff,
-          isDiffReady: state.isDiffReady,
-          diffWorkflow: state.diffWorkflow,
-          toggleDiffView: state.toggleDiffView,
-          acceptChanges: state.acceptChanges,
-          rejectChanges: state.rejectChanges,
-        }),
-        []
-      )
+  const {
+    isShowingDiff,
+    isDiffReady,
+    hasActiveDiff,
+    toggleDiffView,
+    acceptChanges,
+    rejectChanges,
+    baselineWorkflow,
+  } = useWorkflowDiffStore(
+    useCallback(
+      (state) => ({
+        isShowingDiff: state.isShowingDiff,
+        isDiffReady: state.isDiffReady,
+        hasActiveDiff: state.hasActiveDiff,
+        toggleDiffView: state.toggleDiffView,
+        acceptChanges: state.acceptChanges,
+        rejectChanges: state.rejectChanges,
+        baselineWorkflow: state.baselineWorkflow,
+      }),
+      []
     )
+  )
 
   // Optimized: Single copilot store subscription for needed values
   const { updatePreviewToolCallState, clearPreviewYaml, currentChat, messages } = useCopilotStore(
@@ -61,10 +72,11 @@ export const DiffControls = memo(function DiffControls() {
     try {
       logger.info('Creating checkpoint before accepting changes')
 
-      // Get current workflow state from the store and ensure it's complete
-      const rawState = useWorkflowStore.getState().getWorkflowState()
+      // Use the baseline workflow (state before diff) instead of current state
+      // This ensures reverting to the checkpoint restores the pre-diff state
+      const rawState = baselineWorkflow || useWorkflowStore.getState().getWorkflowState()
 
-      // Merge subblock values from the SubBlockStore to get complete state
+      // The baseline already has merged subblock values, but we'll merge again to be safe
       // This ensures all user inputs and subblock data are captured
       const blocksWithSubblockValues = mergeSubblockState(rawState.blocks, activeWorkflowId)
 
@@ -199,7 +211,7 @@ export const DiffControls = memo(function DiffControls() {
       logger.error('Failed to create checkpoint:', error)
       return false
     }
-  }, [activeWorkflowId, currentChat, messages])
+  }, [activeWorkflowId, currentChat, messages, baselineWorkflow])
 
   const handleAccept = useCallback(async () => {
     logger.info('Accepting proposed changes with backup protection')
@@ -297,13 +309,16 @@ export const DiffControls = memo(function DiffControls() {
   }, [clearPreviewYaml, updatePreviewToolCallState, rejectChanges])
 
   // Don't show anything if no diff is available or diff is not ready
-  if (!diffWorkflow || !isDiffReady) {
+  if (!hasActiveDiff || !isDiffReady) {
     return null
   }
 
   return (
     <div
-      className='-translate-x-1/2 fixed left-1/2 z-30'
+      className={clsx(
+        '-translate-x-1/2 fixed left-1/2 z-30',
+        !isTerminalResizing && 'transition-[bottom] duration-100 ease-out'
+      )}
       style={{ bottom: 'calc(var(--terminal-height) + 40px)' }}
     >
       <div className='flex items-center gap-[6px] rounded-[10px] p-[6px]'>

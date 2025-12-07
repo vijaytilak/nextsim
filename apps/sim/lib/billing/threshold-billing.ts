@@ -6,7 +6,7 @@ import { DEFAULT_OVERAGE_THRESHOLD } from '@/lib/billing/constants'
 import { calculateSubscriptionOverage, getPlanPricing } from '@/lib/billing/core/billing'
 import { getHighestPrioritySubscription } from '@/lib/billing/core/subscription'
 import { requireStripeClient } from '@/lib/billing/stripe-client'
-import { env } from '@/lib/env'
+import { env } from '@/lib/core/config/env'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('ThresholdBilling')
@@ -330,7 +330,7 @@ export async function checkAndBillOrganizationOverageThreshold(
       }
 
       const { basePrice: basePricePerSeat } = getPlanPricing(orgSubscription.plan)
-      const basePrice = basePricePerSeat * (orgSubscription.seats || 1)
+      const basePrice = basePricePerSeat * (orgSubscription.seats ?? 0)
       const currentOverage = Math.max(0, totalTeamUsage - basePrice)
       const unbilledOverage = Math.max(0, currentOverage - totalBilledOverage)
 

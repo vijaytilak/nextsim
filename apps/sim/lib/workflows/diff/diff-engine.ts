@@ -1,9 +1,9 @@
 import type { Edge } from 'reactflow'
 import { v4 as uuidv4 } from 'uuid'
 import { createLogger } from '@/lib/logs/console/logger'
+import type { BlockWithDiff } from '@/lib/workflows/diff/types'
 import { mergeSubblockState } from '@/stores/workflows/utils'
 import type { BlockState, WorkflowState } from '@/stores/workflows/workflow/types'
-import type { BlockWithDiff } from './types'
 
 const logger = createLogger('WorkflowDiffEngine')
 
@@ -474,7 +474,8 @@ export class WorkflowDiffEngine {
    */
   async createDiffFromWorkflowState(
     proposedState: WorkflowState,
-    diffAnalysis?: DiffAnalysis
+    diffAnalysis?: DiffAnalysis,
+    baselineOverride?: WorkflowState
   ): Promise<DiffResult & { diff?: WorkflowDiff }> {
     try {
       logger.info('WorkflowDiffEngine.createDiffFromWorkflowState called with:', {
@@ -483,15 +484,14 @@ export class WorkflowDiffEngine {
         hasDiffAnalysis: !!diffAnalysis,
       })
 
-      // Get baseline for comparison
-      // If we already have a diff, use it as baseline (editing on top of diff)
-      // Otherwise use the current workflow state
+      // Determine baseline for comparison
       const { useWorkflowStore } = await import('@/stores/workflows/workflow/store')
       const currentWorkflowState = useWorkflowStore.getState().getWorkflowState()
 
-      // Check if we're editing on top of an existing diff
-      const baselineForComparison = this.currentDiff?.proposedState || currentWorkflowState
-      const isEditingOnTopOfDiff = !!this.currentDiff
+      const hasBaselineOverride = !!baselineOverride
+      const baselineForComparison =
+        baselineOverride ?? this.currentDiff?.proposedState ?? currentWorkflowState
+      const isEditingOnTopOfDiff = !baselineOverride && !!this.currentDiff
 
       if (isEditingOnTopOfDiff) {
         logger.info('Editing on top of existing diff - using diff as baseline for comparison', {
@@ -503,8 +503,8 @@ export class WorkflowDiffEngine {
       let mergedBaseline: WorkflowState = baselineForComparison
 
       // Only merge subblock values if we're comparing against original workflow
-      // If editing on top of diff, use the diff state as-is
-      if (!isEditingOnTopOfDiff) {
+      // If editing on top of diff or using an explicit override, trust provided values
+      if (!isEditingOnTopOfDiff && !hasBaselineOverride) {
         try {
           mergedBaseline = {
             ...baselineForComparison,
@@ -610,22 +610,19 @@ export class WorkflowDiffEngine {
       const finalEdges: Edge[] = Array.from(edgeMap.values())
 
       // Build final proposed state
+      // Always regenerate loops and parallels from finalBlocks because the block IDs may have
+      // been remapped (via idMap) and the server's loops/parallels would have stale references.
+      // This ensures the nodes arrays in loops/parallels contain the correct (remapped) block IDs,
+      // which is critical for variable resolution in the tag dropdown.
+      const { generateLoopBlocks, generateParallelBlocks } = await import(
+        '@/stores/workflows/workflow/utils'
+      )
       const finalProposedState: WorkflowState = {
         blocks: finalBlocks,
         edges: finalEdges,
-        loops: proposedState.loops || {},
-        parallels: proposedState.parallels || {},
+        loops: generateLoopBlocks(finalBlocks),
+        parallels: generateParallelBlocks(finalBlocks),
         lastSaved: Date.now(),
-      }
-
-      // Ensure loops and parallels are generated
-      if (Object.keys(finalProposedState.loops).length === 0) {
-        const { generateLoopBlocks } = await import('@/stores/workflows/workflow/utils')
-        finalProposedState.loops = generateLoopBlocks(finalProposedState.blocks)
-      }
-      if (Object.keys(finalProposedState.parallels).length === 0) {
-        const { generateParallelBlocks } = await import('@/stores/workflows/workflow/utils')
-        finalProposedState.parallels = generateParallelBlocks(finalProposedState.blocks)
       }
 
       // Transfer block heights from baseline workflow for better measurements in diff view
@@ -693,11 +690,14 @@ export class WorkflowDiffEngine {
           })
 
           const { applyTargetedLayout } = await import('@/lib/workflows/autolayout')
+          const { DEFAULT_HORIZONTAL_SPACING, DEFAULT_VERTICAL_SPACING } = await import(
+            '@/lib/workflows/autolayout/constants'
+          )
 
           const layoutedBlocks = applyTargetedLayout(finalBlocks, finalProposedState.edges, {
             changedBlockIds: impactedBlockArray,
-            horizontalSpacing: 550,
-            verticalSpacing: 200,
+            horizontalSpacing: DEFAULT_HORIZONTAL_SPACING,
+            verticalSpacing: DEFAULT_VERTICAL_SPACING,
           })
 
           Object.entries(layoutedBlocks).forEach(([id, layoutBlock]) => {
@@ -738,23 +738,12 @@ export class WorkflowDiffEngine {
           const { applyAutoLayout: applyNativeAutoLayout } = await import(
             '@/lib/workflows/autolayout'
           )
-
-          const autoLayoutOptions = {
-            horizontalSpacing: 550,
-            verticalSpacing: 200,
-            padding: {
-              x: 150,
-              y: 150,
-            },
-            alignment: 'center' as const,
-          }
+          const { DEFAULT_LAYOUT_OPTIONS } = await import('@/lib/workflows/autolayout/constants')
 
           const layoutResult = applyNativeAutoLayout(
             finalBlocks,
             finalProposedState.edges,
-            finalProposedState.loops || {},
-            finalProposedState.parallels || {},
-            autoLayoutOptions
+            DEFAULT_LAYOUT_OPTIONS
           )
 
           if (layoutResult.success && layoutResult.blocks) {
@@ -1082,7 +1071,7 @@ export class WorkflowDiffEngine {
 
     try {
       // Clean up the proposed state by removing diff markers
-      const cleanState = this.cleanDiffMarkers(this.currentDiff.proposedState)
+      const cleanState = stripWorkflowDiffMarkers(this.currentDiff.proposedState)
 
       logger.info('Diff accepted', {
         blocksCount: Object.keys(cleanState.blocks).length,
@@ -1098,35 +1087,40 @@ export class WorkflowDiffEngine {
       return null
     }
   }
+}
 
-  /**
-   * Clean diff markers from a workflow state
-   */
-  private cleanDiffMarkers(state: WorkflowState): WorkflowState {
-    const cleanBlocks: Record<string, BlockState> = {}
+/**
+ * Removes diff metadata from a workflow state so it can be persisted or re-used safely.
+ */
+export function stripWorkflowDiffMarkers(state: WorkflowState): WorkflowState {
+  const cleanBlocks: Record<string, BlockState> = {}
 
-    // Remove diff markers from each block
-    for (const [blockId, block] of Object.entries(state.blocks)) {
-      const cleanBlock: BlockState = { ...block }
+  for (const [blockId, block] of Object.entries(state.blocks || {})) {
+    const cleanBlock: BlockState = structuredClone(block)
+    const blockWithDiff = cleanBlock as BlockState & BlockWithDiff
+    blockWithDiff.is_diff = undefined
+    blockWithDiff.field_diffs = undefined
 
-      // Remove diff markers using proper typing
-      const blockWithDiff = cleanBlock as BlockState & BlockWithDiff
-      blockWithDiff.is_diff = undefined
-      blockWithDiff.field_diffs = undefined
-
-      // Ensure outputs is never null/undefined
-      if (cleanBlock.outputs === undefined || cleanBlock.outputs === null) {
-        cleanBlock.outputs = {}
-      }
-
-      cleanBlocks[blockId] = cleanBlock
+    if (cleanBlock.subBlocks) {
+      Object.values(cleanBlock.subBlocks).forEach((subBlock) => {
+        if (subBlock && typeof subBlock === 'object') {
+          ;(subBlock as any).is_diff = undefined
+        }
+      })
     }
 
-    return {
-      blocks: cleanBlocks,
-      edges: state.edges || [],
-      loops: state.loops || {},
-      parallels: state.parallels || {},
+    if (cleanBlock.outputs === undefined || cleanBlock.outputs === null) {
+      cleanBlock.outputs = {}
     }
+
+    cleanBlocks[blockId] = cleanBlock
+  }
+
+  return {
+    ...state,
+    blocks: cleanBlocks,
+    edges: structuredClone(state.edges || []),
+    loops: structuredClone(state.loops || {}),
+    parallels: structuredClone(state.parallels || {}),
   }
 }

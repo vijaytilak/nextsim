@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createLogger } from '@/lib/logs/console/logger'
-import type { CreatorProfileDetails } from '@/types/creator-profile'
+import type { CreatorProfileDetails } from '@/app/_types/creator-profile'
 
 const logger = createLogger('CreatorProfileQuery')
 
@@ -67,7 +67,7 @@ export function useOrganizations() {
  * Fetch creator profile for a user
  */
 async function fetchCreatorProfile(userId: string): Promise<CreatorProfile | null> {
-  const response = await fetch(`/api/creator-profiles?userId=${userId}`)
+  const response = await fetch(`/api/creators?userId=${userId}`)
 
   // Treat 404 as "no profile"
   if (response.status === 404) {
@@ -133,9 +133,7 @@ export function useSaveCreatorProfile() {
         details: details && Object.keys(details).length > 0 ? details : undefined,
       }
 
-      const url = existingProfileId
-        ? `/api/creator-profiles/${existingProfileId}`
-        : '/api/creator-profiles'
+      const url = existingProfileId ? `/api/creators/${existingProfileId}` : '/api/creators'
       const method = existingProfileId ? 'PUT' : 'POST'
 
       const response = await fetch(url, {

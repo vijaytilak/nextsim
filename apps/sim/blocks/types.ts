@@ -74,6 +74,8 @@ export type SubBlockType =
   | 'input-mapping' // Map parent variables to child workflow input schema
   | 'variables-input' // Variable assignments for updating workflow variables
   | 'messages-input' // Multiple message inputs with role and content for LLM message history
+  | 'workflow-selector' // Workflow selector for agent tools
+  | 'workflow-input-mapper' // Dynamic workflow input mapper based on selected workflow
   | 'text' // Read-only text display
 
 /**
@@ -87,6 +89,7 @@ export const SELECTOR_TYPES_HYDRATION_REQUIRED: SubBlockType[] = [
   'folder-selector',
   'project-selector',
   'knowledge-base-selector',
+  'workflow-selector',
   'document-selector',
   'variables-input',
   'mcp-server-selector',
@@ -219,8 +222,7 @@ export interface SubBlockConfig {
   generationType?: GenerationType
   collapsible?: boolean // Whether the code block can be collapsed
   defaultCollapsed?: boolean // Whether the code block is collapsed by default
-  // OAuth specific properties
-  provider?: string
+  // OAuth specific properties - serviceId is the canonical identifier for OAuth services
   serviceId?: string
   requiredScopes?: string[]
   // File selector specific properties
@@ -244,9 +246,15 @@ export interface SubBlockConfig {
     placeholder?: string // Custom placeholder for the prompt input
     maintainHistory?: boolean // Whether to maintain conversation history
   }
-  // Declarative dependency hints for cross-field clearing or invalidation
-  // Example: dependsOn: ['credential'] means this field should be cleared when credential changes
-  dependsOn?: string[]
+  /**
+   * Declarative dependency hints for cross-field clearing or invalidation.
+   * Supports two formats:
+   * - Simple array: `['credential']` - all fields must have values (AND logic)
+   * - Object with all/any: `{ all: ['authMethod'], any: ['credential', 'botToken'] }`
+   *   - `all`: all listed fields must have values (AND logic)
+   *   - `any`: at least one field must have a value (OR logic)
+   */
+  dependsOn?: string[] | { all?: string[]; any?: string[] }
   // Copyable-text specific: Use webhook URL from webhook management hook
   useWebhookUrl?: boolean
   // Trigger-save specific: The trigger ID for validation and saving

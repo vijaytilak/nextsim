@@ -1,8 +1,8 @@
 import { generateInternalToken } from '@/lib/auth/internal'
+import { generateRequestId } from '@/lib/core/utils/request'
+import { getBaseUrl } from '@/lib/core/utils/urls'
 import { createLogger } from '@/lib/logs/console/logger'
 import { parseMcpToolId } from '@/lib/mcp/utils'
-import { getBaseUrl } from '@/lib/urls/utils'
-import { generateRequestId } from '@/lib/utils'
 import type { ExecutionContext } from '@/executor/types'
 import type { ErrorInfo } from '@/tools/error-extractors'
 import { extractErrorMessage } from '@/tools/error-extractors'
@@ -220,6 +220,41 @@ export async function executeTool(
         throw new Error(
           `Failed to obtain credential for tool ${toolId}: ${error instanceof Error ? error.message : String(error)}`
         )
+      }
+    }
+
+    // Check for direct execution (no HTTP request needed)
+    if (tool.directExecution) {
+      logger.info(`[${requestId}] Using directExecution for ${toolId}`)
+      const result = await tool.directExecution(contextParams)
+
+      // Apply post-processing if available and not skipped
+      let finalResult = result
+      if (tool.postProcess && result.success && !skipPostProcess) {
+        try {
+          finalResult = await tool.postProcess(result, contextParams, executeTool)
+        } catch (error) {
+          logger.error(`[${requestId}] Post-processing error for ${toolId}:`, {
+            error: error instanceof Error ? error.message : String(error),
+          })
+          finalResult = result
+        }
+      }
+
+      // Process file outputs if execution context is available
+      finalResult = await processFileOutputs(finalResult, tool, executionContext)
+
+      // Add timing data to the result
+      const endTime = new Date()
+      const endTimeISO = endTime.toISOString()
+      const duration = endTime.getTime() - startTime.getTime()
+      return {
+        ...finalResult,
+        timing: {
+          startTime: startTimeISO,
+          endTime: endTimeISO,
+          duration,
+        },
       }
     }
 
@@ -474,9 +509,21 @@ async function handleInternalRequest(
 
     if (toolId.startsWith('custom_') && tool.request.body) {
       const requestBody = tool.request.body(params)
-      if (requestBody.schema && requestBody.params) {
+      if (
+        typeof requestBody === 'object' &&
+        requestBody !== null &&
+        'schema' in requestBody &&
+        'params' in requestBody
+      ) {
         try {
-          validateClientSideParams(requestBody.params, requestBody.schema)
+          validateClientSideParams(
+            requestBody.params as Record<string, any>,
+            requestBody.schema as {
+              type: string
+              properties: Record<string, any>
+              required?: string[]
+            }
+          )
         } catch (validationError) {
           logger.error(`[${requestId}] Custom tool validation failed for ${toolId}:`, {
             error:
@@ -499,29 +546,36 @@ async function handleInternalRequest(
 
     const response = await fetch(fullUrl, requestOptions)
 
-    // For non-OK responses, attempt JSON first; if parsing fails, preserve legacy error expected by tests
+    // For non-OK responses, attempt JSON first; if parsing fails, fall back to text
     if (!response.ok) {
       let errorData: any
       try {
         errorData = await response.json()
       } catch (jsonError) {
-        logger.error(`[${requestId}] JSON parse error for ${toolId}:`, {
-          error: jsonError instanceof Error ? jsonError.message : String(jsonError),
-        })
-        throw new Error(`Failed to parse response from ${toolId}: ${jsonError}`)
+        // JSON parsing failed, fall back to reading as text for error extraction
+        logger.warn(`[${requestId}] Response is not JSON for ${toolId}, reading as text`)
+        try {
+          errorData = await response.text()
+        } catch (textError) {
+          logger.error(`[${requestId}] Failed to read response body for ${toolId}`)
+          errorData = null
+        }
       }
 
-      const { isError, errorInfo } = isErrorResponse(response, errorData)
-      if (isError) {
-        const errorToTransform = createTransformedErrorFromErrorInfo(errorInfo, tool.errorExtractor)
-
-        logger.error(`[${requestId}] Internal API error for ${toolId}:`, {
-          status: errorInfo?.status,
-          errorData: errorInfo?.data,
-        })
-
-        throw errorToTransform
+      const errorInfo: ErrorInfo = {
+        status: response.status,
+        statusText: response.statusText,
+        data: errorData,
       }
+
+      const errorToTransform = createTransformedErrorFromErrorInfo(errorInfo, tool.errorExtractor)
+
+      logger.error(`[${requestId}] Internal API error for ${toolId}:`, {
+        status: errorInfo.status,
+        errorData: errorInfo.data,
+      })
+
+      throw errorToTransform
     }
 
     // Parse response data once with guard for empty 202 bodies

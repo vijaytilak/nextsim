@@ -4,18 +4,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/emcn'
 import { Skeleton } from '@/components/ui'
-import { createLogger } from '@/lib/logs/console/logger'
+import { isUsageAtLimit, USAGE_PILL_COLORS } from '@/lib/billing/client/usage-visualization'
 import {
   canUpgrade,
   getBillingStatus,
   getSubscriptionStatus,
   getUsage,
-} from '@/lib/subscription/helpers'
-import { isUsageAtLimit, USAGE_PILL_COLORS } from '@/lib/subscription/usage-visualization'
-import { useSocket } from '@/contexts/socket-context'
+} from '@/lib/billing/client/utils'
+import { createLogger } from '@/lib/logs/console/logger'
+import { useSocket } from '@/app/workspace/providers/socket-provider'
 import { subscriptionKeys, useSubscriptionData } from '@/hooks/queries/subscription'
 import { MIN_SIDEBAR_WIDTH, useSidebarStore } from '@/stores/sidebar/store'
-import { RotatingDigit } from './rotating-digit'
 
 const logger = createLogger('UsageIndicator')
 
@@ -272,18 +271,12 @@ export function UsageIndicator({ onClick }: UsageIndicatorProps) {
               </>
             ) : (
               <>
-                <div className='flex items-center font-medium text-[12px] text-[var(--text-tertiary)]'>
-                  <span className='mr-[1px]'>$</span>
-                  <RotatingDigit
-                    value={usage.current}
-                    height={14}
-                    width={7}
-                    textClassName='font-medium text-[12px] text-[var(--text-tertiary)] tabular-nums'
-                  />
-                </div>
+                <span className='font-medium text-[12px] text-[var(--text-tertiary)] tabular-nums'>
+                  ${usage.current.toFixed(2)}
+                </span>
                 <span className='font-medium text-[12px] text-[var(--text-tertiary)]'>/</span>
                 <span className='font-medium text-[12px] text-[var(--text-tertiary)] tabular-nums'>
-                  ${usage.limit}
+                  ${usage.limit.toFixed(2)}
                 </span>
               </>
             )}
